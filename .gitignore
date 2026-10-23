@@ -1,0 +1,19 @@
+# Build output (DLLs are published as GitHub Releases, not committed)
+build/
+bin/
+obj/
+*.dll
+*.pdb
+
+# Never commit game files or decompiled game code
+Managed/
+Assembly-CSharp*
+decompiled/
+
+# Editors / OS
+.vs/
+.vscode/
+.idea/
+*.user
+Thumbs.db
+desktop.ini
