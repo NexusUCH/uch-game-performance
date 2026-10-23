@@ -1,13 +1,13 @@
 # UCH Game Performance 2.2.0
 
-One performance mod for vanilla Ultimate Chicken Horse. It replaces UCH Game Performance 1.x, BetterPerformance, and LevelLoadingOptimizer. Requires **BepInEx 5**; Harmony is already included with BepInEx. No other plugin or extra DLL is required.
+One performance mod for vanilla Ultimate Chicken Horse. It replaces UCH Game Performance 1.x and includes the ideas of BetterPerformance and LevelLoadingOptimizer, so you don't need those anymore (keeping them installed is fine too). Requires **BepInEx 5**; Harmony is already included with BepInEx. No other plugin or extra DLL is required.
 
 Gains show mostly on busy maps (many moving blocks/projectiles). No specific FPS increase is promised; FPS caps can hide gains.
 
 ## Install
 
 1. Close UCH.
-2. **Remove the BetterPerformance + LevelLoadingOptimizer folders** from `BepInEx/plugins`. Remove any older duplicate UCH Game Performance DLL, including copies in differently named folders.
+2. Remove any older UCH Game Performance DLL, including copies in differently named folders.
 3. Download `UCHGamePerformance.dll` from [Releases](../../releases) and put it in `BepInEx/plugins/UCH Game Performance/`.
 4. Start UCH. Read the startup lines in `BepInEx/LogOutput.log`: each feature reports `requested / applied / bypassed(reason)`.
 
