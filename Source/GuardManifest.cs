@@ -1,5 +1,3 @@
-// 2.0.1: game fingerprints unchanged; Guards additionally validates EH boundaries and protects explicit leave targets.
-// 2.2.0: adds deleteSprite.DeleteSprite (debris pool return point) and QuickSaver.CalculateLevelFullness.
 // Generated offline from the explicitly pinned installed game. Do not regenerate to bypass a game update.
 using System.Collections.Generic;
 namespace UCHGamePerformance
@@ -12,13 +10,17 @@ namespace UCHGamePerformance
             { "Assembly-CSharp.dll:06000118", "684888C0EBB17F374298B65EE2807526C066094C701BCC7EBBE1C1095F494FC1" },
             { "Assembly-CSharp.dll:060003AF", "098F33E735BC154BCC7775BF07E05C13189119287250D17E38FCBE717069A95A" },
             { "Assembly-CSharp.dll:060003B9", "618DA0008E1A41324FF953D0B7CE8BE50118DB3A135E778C45138036D10EABF6" },
+            { "Assembly-CSharp.dll:060003BA", "684888C0EBB17F374298B65EE2807526C066094C701BCC7EBBE1C1095F494FC1" },
             { "Assembly-CSharp.dll:060003BB", "95388F69E0C6BDAE660D1C57EEED4C6F2CBFF113B2C349AACE4932C961C5022A" },
             { "Assembly-CSharp.dll:060003BD", "0A4F5B7CE14EB96222134F910BDCC9677DA07431147B33075F15144AB47BE04F" },
+            { "Assembly-CSharp.dll:060003C8", "F2C3476CD02269311CB13D1D31286E983871C3FE0852CB32163F4324CB57BC1B" },
+            { "Assembly-CSharp.dll:060003CB", "8CA75FD60AAB5E981A1BD3DB3BE489E65C5742250643E7A04FBF9F9A81B5F6C3" },
             { "Assembly-CSharp.dll:060003D0", "8A951B57DEFB37679CF00A69953A2F06D435853E75736F37022859E522A92FCA" },
             { "Assembly-CSharp.dll:060003D1", "B32A98E8B4B23B052EC895A5BBA948EACE6956B197C316E91D2339DDC5B9AD7F" },
             { "Assembly-CSharp.dll:060003D2", "CC33AC7A9F8F9A066476AEDF2393A97479784DDDE127AC9273A7D38AB5EEB5E6" },
             { "Assembly-CSharp.dll:060003D4", "1D2D990C68A50B957FB6A5A1782C8109BB8E306687BB4D3CDEDED456146F9B55" },
             { "Assembly-CSharp.dll:060003D5", "CBC7D6A44B9D6D6E524375113615951C284226468BB60A798A2E19FBE58C1075" },
+            { "Assembly-CSharp.dll:060003E7", "9CC122240DF873582AEFA69BC7303AD4E9F8105691CFB62496ACEF80F992368F" },
             { "Assembly-CSharp.dll:060003EE", "19A92F9914DA8A7DCBFAAB8ADEBA75A7F67DAD0621857C4F713099E80A7B83E4" },
             { "Assembly-CSharp.dll:060003F0", "F9E1C5B9CC878F38A8CCD29A38994C6AFA96DEA27B8A0138410FDB69AE5E4EDC" },
             { "Assembly-CSharp.dll:060005D7", "77C2070054FA4888F0BC18826EA874AC31E85484C55B439E2BD59085E3FD2D83" },
@@ -53,13 +55,16 @@ namespace UCHGamePerformance
             { "Assembly-CSharp.dll:06002A77", "AC7E6D76773FB4745B8DCB88DBC224BB1B7D5425AEFEBE3BA6CC519D7EAABFFE" },
             { "Assembly-CSharp.dll:06002A86", "77830BAF2A7C3EF57B3F05CDF546390CC699512F7F4F707F5112ED7164B6E297" },
             { "Assembly-CSharp.dll:06002A92", "081FAF31A9368A9A49BECD3BD22FD91ECB62D6C5617A9E945906D2F254659665" },
+            { "Assembly-CSharp.dll:0600269A", "E36946F9ACDA163A1BE70286648A9A79DE727B5175D1A7531EE66777CF69257A" },
             { "Assembly-CSharp.dll:060026AC", "1FD686A980D2697B454321D2B67E416D29C94641392F45CFAAA8DE3FA411494D" },
             { "Assembly-CSharp.dll:060026B9", "E8A577FF8BAE4201CC2C5ACA6968413EEBBE77083FA8AEB90E6E68DBD40B1542" },
+            { "Assembly-CSharp.dll:060016CC", "27DDB35FCD6321831984161B2E6D5E81E6FFD6976396DEE571F26D0B3EF7554E" },
             { "Assembly-CSharp.dll:06000716", "C326238321F40EE57D5CFFBF7AEAB8A2C46DCC27A2D1478AA6BF069A68694AE4" },
             { "Assembly-CSharp.dll:06000717", "C831F1088DFA7783038267D526C4AEAE2660D7D8A7EADD8C9FFB0D949E64F979" },
             { "Assembly-CSharp.dll:060006DD", "D014E22852F6789216CB7ED4BF6E63C21042680FB78B00CC177ED609192D6F4F" },
             { "Assembly-CSharp.dll:06000127", "B6B8061EF571121A95E15284C8532A00CC346B9097ED1ACFF4115D0C275D5179" },
             { "Assembly-CSharp-firstpass.dll:06000067", "D91283C71532161D7C5D554925982F9A75E708F4CAD80E5D236C0D5936CBE030" },
+            { "AK.Wwise.Unity.MonoBehaviour.dll:06000053", "5C92590D300B127EF36BFDCA2DF742ACA008BA7C2A598635AA7106161F15B104" },
         };
         internal static readonly Dictionary<string,string> Signatures = new Dictionary<string,string>
         {
@@ -67,13 +72,17 @@ namespace UCHGamePerformance
             { "Assembly-CSharp.dll:06000118", "ActiveBlock::Act(System.Single):System.Void:instance" },
             { "Assembly-CSharp.dll:060003AF", "Placeable::set_MarkedForDestruction(System.Boolean):System.Void:instance" },
             { "Assembly-CSharp.dll:060003B9", "Placeable::Awake():System.Void:instance" },
+            { "Assembly-CSharp.dll:060003BA", "Placeable::Start():System.Void:instance" },
             { "Assembly-CSharp.dll:060003BB", "Placeable::OnDestroy():System.Void:instance" },
             { "Assembly-CSharp.dll:060003BD", "Placeable::FixedUpdate():System.Void:instance" },
+            { "Assembly-CSharp.dll:060003C8", "Placeable::PickUp():System.Void:instance" },
+            { "Assembly-CSharp.dll:060003CB", "Placeable::ResetTransform(System.Int32):System.Void:instance" },
             { "Assembly-CSharp.dll:060003D0", "Placeable::GetTotalMass():System.Single:instance" },
             { "Assembly-CSharp.dll:060003D1", "Placeable::GetPhysicsModifiers():PhysicsModifier[]:instance" },
             { "Assembly-CSharp.dll:060003D2", "Placeable::GetPhysicsModifier():PhysicsModifier[]:instance" },
             { "Assembly-CSharp.dll:060003D4", "Placeable::AttachPiece(Placeable):System.Void:instance" },
             { "Assembly-CSharp.dll:060003D5", "Placeable::DetachPiece(Placeable,System.Boolean):System.Void:instance" },
+            { "Assembly-CSharp.dll:060003E7", "Placeable::ApplyTransformFromMessage(MsgBookPiecePicked):System.Void:instance" },
             { "Assembly-CSharp.dll:060003EE", "Placeable::calculateMassRatio():System.Single:instance" },
             { "Assembly-CSharp.dll:060003F0", "Placeable::DetachChildrenForPickup(System.Boolean):System.Void:instance" },
             { "Assembly-CSharp.dll:060005D7", "CheckColliding::FixedUpdate():System.Void:instance" },
@@ -108,13 +117,16 @@ namespace UCHGamePerformance
             { "Assembly-CSharp.dll:06002A77", "QuickSaver::RestoreSaveables(System.Collections.Generic.Dictionary`2<System.Int32,QuickSaver+SaveablePiece>,System.Boolean):System.Void:instance" },
             { "Assembly-CSharp.dll:06002A86", "QuickSaver::GetTransformFromHierarchyPath(System.String):UnityEngine.Transform:static" },
             { "Assembly-CSharp.dll:06002A92", "QuickSaver::CalculateLevelFullness():System.Int32:instance" },
+            { "Assembly-CSharp.dll:0600269A", "GameControl::AfterAFixedUpdate():System.Void:instance" },
             { "Assembly-CSharp.dll:060026AC", "GameControl::handleEvent(GameEvent.GameEvent):System.Void:instance" },
             { "Assembly-CSharp.dll:060026B9", "GameControl::RpcPropagateBlockIDs(System.String[],System.Int32[]):System.Void:instance" },
+            { "Assembly-CSharp.dll:060016CC", "PiecePlacementCursor::SetPiece(Placeable,System.Boolean,System.Boolean):System.Void:instance" },
             { "Assembly-CSharp.dll:06000716", "SlowMoImageEffect::OnRenderImage(UnityEngine.RenderTexture,UnityEngine.RenderTexture):System.Void:instance" },
             { "Assembly-CSharp.dll:06000717", "SlowMoImageEffect::Update():System.Void:instance" },
             { "Assembly-CSharp.dll:060006DD", "deleteSprite::DeleteSprite():System.Void:instance" },
             { "Assembly-CSharp.dll:06000127", "ActiveBlock+<actOnFixed>d__12::MoveNext():System.Boolean:instance" },
             { "Assembly-CSharp-firstpass.dll:06000067", "Smooth.NetworkState::.ctor(Smooth.SmoothSync):constructor:instance" },
+            { "AK.Wwise.Unity.MonoBehaviour.dll:06000053", "AkGameObj::Update():System.Void:instance" },
         };
     }
 }

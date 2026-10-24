@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace UCHGamePerformance
 {
-    [BepInPlugin(Guid, "UCH Game Performance", "2.2.0")]
+    [BepInPlugin(Guid, "UCH Game Performance", "2.3.0")]
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.nexus.uch.gameperformance";
@@ -64,7 +64,7 @@ namespace UCHGamePerformance
         {
             Feature.Log = Logger;
             started = true;
-            Logger.LogInfo("UCH Game Performance 2.2.0; vanilla target; all options require a restart.");
+            Logger.LogInfo("UCH Game Performance 2.3.0; vanilla target; all options require a restart.");
             // Master switch for A/B testing (UCH Perf Test can flip it by name); false leaves the game fully vanilla.
             if (!Config.Bind("General", "Enabled", true, "Master switch. false = this mod applies nothing and the game runs vanilla. Restart the game after changing this option.").Value)
             {
@@ -76,7 +76,7 @@ namespace UCHGamePerformance
             foreach (KeyValuePair<string, PluginInfo> item in Chainloader.PluginInfos)
                 if (item.Key != Guid && item.Key != "com.nexus.uch.perftest") extra.Add(item.Key);
             if (extra.Count != 0) Logger.LogWarning("Non-vanilla plugins loaded: " + string.Join(", ", extra.ToArray()) +
-                ". This mod targets vanilla. Remove BetterPerformance + LevelLoadingOptimizer folders; this mod replaces them. Use alone for reliable results.");
+                ". They can stay installed. LevelLoadingOptimizer is fine alongside this mod; BetterPerformance overlaps with it, so turn BetterPerformance off if your mod manager allows it.");
 
             EngineFeatures();
             Enable(Wait, true, "Reuse the fixed-step wait object without changing coroutine scheduling.", CpuHooks.InstallWait);
@@ -96,6 +96,13 @@ namespace UCHGamePerformance
             Enable(Events, true, "Reuse event cleanup lists with separate storage for nested event sends.", EventHooks.InstallScratch);
             Enable(Inactive, true, "Skip network-event handling for inactive pooled projectiles. Pause and scoreboard state still update.", EventHooks.InstallInactive);
             Enable(FullnessHooks.Fullness, true, "Count level fullness from registered placeables instead of a whole-scene search; checked against vanilla on every scene load and every 32nd count.", FullnessHooks.Install);
+            // 2.3.0: both need a persistent coroutine host (this plugin object survives scene loads).
+            ActDispatchHooks.Host = this;
+            StaticBlockHooks.Host = this;
+            Enable(ActDispatchHooks.Dispatch, true, "Run all block act loops from one central runner in the vanilla order and phase; each block's first step stays native.", ActDispatchHooks.Install);
+            Enable(PlaceableTickHooks.Tick, true, "Run plain blocks' per-step bookkeeping from one early loop instead of one native FixedUpdate call per block; attached blocks still run the original method.", PlaceableTickHooks.Install);
+            Enable(AudioHooks.Emitters, true, "Skip a sound emitter's per-frame position update while its transform and sound environment are unchanged; it would send nothing in that case.", AudioHooks.Install);
+            Enable(StaticBlockHooks.Static, true, "During the play phase give motionless plain blocks a Static body (skipped by the physics step); reverted before anything can move them.", StaticBlockHooks.Install);
             Enable(Logs, true, "Silence only three known pool/placement hot-path messages at their call sites.", CpuHooks.InstallLogs);
             Enable(Paths, true, "Cache parsed hierarchy paths within each load pass. Resolve roots live to honor hierarchy mutations.", LoadingHooks.InstallPaths);
             Enable(PlacedSet, true, "Mirror placed-block membership with a hash set while the original ordered list remains authoritative.", LoadingHooks.InstallPlacedSet);
@@ -108,8 +115,6 @@ namespace UCHGamePerformance
                 Logger.LogInfo("Graphics/SlowMotionScreenEffect mode=" + ScreenMode);
             }
             catch (Exception e) { SlowMo.Start(true, null, "config: " + e.Message); }
-            Deferred("Experimental/StaticBlocks", false, "Request static block conversion; unavailable pending proof of every mover/physics lifecycle.",
-                "vanilla: body-type conversion can alter contacts; complete event-driven motion invalidation is unproven");
             Deferred("Experimental/QuickSaverRepair", false, "Request saved-block layer/body repair; unavailable pending a proven safe scope.",
                 "vanilla: blanket layer/kinematic writes change gameplay state and conflict with the no-layer-change rule");
             SceneManager.sceneUnloaded += SceneUnloaded;
@@ -184,6 +189,10 @@ namespace UCHGamePerformance
         {
             try { CpuHooks.PruneIdle(); }
             catch (Exception e) { Idle.Fail(e); }
+            try { ActDispatchHooks.SceneUnloaded(); }
+            catch (Exception e) { ActDispatchHooks.Dispatch.Fail(e); }
+            try { AudioHooks.SceneUnloaded(); }
+            catch (Exception e) { AudioHooks.Emitters.Fail(e); }
         }
 
         private void OnEnable()

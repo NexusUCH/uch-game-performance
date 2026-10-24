@@ -1,6 +1,6 @@
-# UCH Game Performance 2.2.0
+# UCH Game Performance 2.3.0
 
-One performance mod for vanilla Ultimate Chicken Horse. It replaces UCH Game Performance 1.x and includes the ideas of BetterPerformance and LevelLoadingOptimizer, so you don't need those anymore (keeping them installed is fine too). Requires **BepInEx 5**; Harmony is already included with BepInEx. No other plugin or extra DLL is required.
+One performance mod for vanilla Ultimate Chicken Horse. It replaces UCH Game Performance 1.x, BetterPerformance and LevelLoadingOptimizer, so you don't need those anymore (keeping them installed is fine too). Requires **BepInEx 5**; Harmony is already included with BepInEx. No other plugin or extra DLL is required.
 
 Gains show mostly on busy maps (many moving blocks/projectiles). No specific FPS increase is promised; FPS caps can hide gains.
 
@@ -11,7 +11,7 @@ Gains show mostly on busy maps (many moving blocks/projectiles). No specific FPS
 3. Download `UCHGamePerformance.dll` from [Releases](../../releases) and put it in `BepInEx/plugins/UCH Game Performance/`.
 4. Start UCH. Read the startup lines in `BepInEx/LogOutput.log`: each feature reports `requested / applied / bypassed(reason)`.
 
-This version targets vanilla UCH. It warns if other gameplay plugins are loaded and does not negotiate ownership with them. Use it on its own for reliable results. The separate optional benchmark tool can also be used; it is not required or bundled.
+Other mods can stay installed; nothing has to be removed or disabled. LevelLoadingOptimizer works fine alongside this mod (also if your mod manager, e.g. Barnyard, cannot turn it off). BetterPerformance does some of the same things, so turn it off if your mod manager allows it; you do not need it with this mod. The mod logs which other plugins are loaded but never changes them. The separate optional benchmark tool can also be used; it is not required or bundled.
 
 Only the explicitly supported game build applies optimizations. Other game builds keep all features bypassed. The mod writes only its own BepInEx config and log messages. It does not change game files, the registry, physics timing, hitboxes, projectile rotation, or gameplay layers.
 
@@ -38,6 +38,10 @@ Every row is a separate switch unless a value is shown. Section/key spelling mat
 | Projectiles / ColliderArrayCache | On | Reuses live-validated collider arrays when firing. |
 | Projectiles / SkipIgnoredPairs | On | Avoids repeating an already active collision-ignore setting. |
 | Projectiles / DebrisPooling | On, partial | Reuses arrow/ball miss debris instead of creating and destroying it per hit; each reuse resets position, rotation, scale, sprites, animation and velocity. Player-hit debris, debris with sounds (airplane) and the projectile-explosion modifier stay vanilla. |
+| CPU / CentralBlockLoops | On | Runs every moving/active block's per-step action from one central loop instead of one coroutine per block, in the same order and at the same moment of the frame. Each block's first step after it appears still runs natively. Shooter fire timing does not use this loop. |
+| CPU / CentralPlaceableTick | On | Plain blocks only need a tiny bit of bookkeeping each physics step, but Unity still makes one call per block. One early loop now does that bookkeeping for all of them; attached blocks still run the original method. |
+| CPU / AudioEmitterIdleSkip | On | Sound emitters re-check their position every frame. While an emitter has not moved and its sound environment is unchanged, that check is skipped; it would not have sent anything to the sound engine. |
+| Physics / StaticBlocks | On | During the play phase, plain placed blocks that cannot move (no moving parent, no animation, no logic) get a static physics body, which the physics step skips. Players, projectiles and moving blocks collide with them exactly as before. Every block is switched back before anything can pick up, move or re-attach it (phase changes, free-play mode switch, level load), and a watchdog switches back any block that moves anyway. |
 | CPU / AttractorRadiusOnChange | On | Writes the magnet collider radius only when it differs. |
 | CPU / MultipieceUpdateGate | On | Runs hover/destruction work when relevant inputs or part lifecycle change. |
 | CPU / MoverMassCache | On, partial | Caches attachment-based mass ratios. Distance/radius-based ratios remain vanilla. |
@@ -51,10 +55,21 @@ Every row is a separate switch unless a value is shown. Section/key spelling mat
 | Experimental / PhysicsMultithreading | On | Enables Unity 2D physics jobs with consistency sorting, spreading the physics step over CPU cores; does not change simulation mode or worker counts. Biggest measured gain on busy maps; turn off if anything looks different. |
 | Experimental / SmoothSyncAllocations | Off, partial | Removes one overwritten temporary allocation per send. Other sync allocations remain vanilla. |
 | Graphics / SlowMotionScreenEffect | Vanilla | `Vanilla`, `SkipWhenIdle` (plain blit with neutral shader inputs), or `Remove` (always plain blit). Active slowdown timing stays vanilla. Cosmetic opt-in. |
-| Experimental / StaticBlocks | Off; unavailable | Remains vanilla; complete safe motion/contact invalidation is unproven. |
 | Experimental / QuickSaverRepair | Off; unavailable | Remains vanilla; blanket layer/body changes would change gameplay state. |
 
 No global logger suppression, event pruning, built-in profiler, hardware-specific worker tuning, or blanket debris lifecycle replacement is included. Experimental graphics/physics options require a visual and gameplay check on your maps. The screen-effect options retain the camera render-texture path; they replace the material blit rather than disabling the effect component.
+
+## Benchmarks
+
+Automated in-game tests on a heavy map (UCH level code **800M-VDMW**: a real map plus every block placed in competitive play, 2,848 blocks), free play, FPS cap lifted, Ryzen 5 5600X + RTX 4060, 30 s per run, two runs each:
+
+| | Avg FPS | Frames slower than 8.33 ms (per 30 s) | Worst frame |
+|---|---|---|---|
+| Vanilla | 67.6 | ~1,770 | ~41 ms |
+| 2.2.0 level (2.3 features off) | 206.4 | ~1,795 | ~22 ms |
+| **2.3.0** | **271.9** | **~347** | **~16 ms** |
+
+Every run with all metrics: [docs/UCH-Game-Performance-Test-Log.xlsx](docs/UCH-Game-Performance-Test-Log.xlsx). Measured in local free play; real versus rounds and online play are not benchmarked yet.
 
 ## Comparing results
 
@@ -70,7 +85,7 @@ Close UCH and remove `BepInEx/plugins/UCH Game Performance`. You can optionally 
 
 ## Credits
 
-Nexus: combined implementation and original CPU optimizations. **Bojack**: BetterPerformance and LevelLoadingOptimizer code/ideas, reused with permission. The revised implementation preserves vanilla logging outside the three specific hot paths and fixes cache invalidation rather than inheriting permanent collider/root caches.
+Made by Nexus. Some early optimizations were inspired by Bojack's BetterPerformance / LevelLoadingOptimizer.
 
 2.0.1 fixes the pause-menu and mode-change softlock caused by event listeners
 being removed after dispatch. CPU/EventScratchLists remains On by default.
