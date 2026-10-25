@@ -2,7 +2,7 @@
 
 One performance mod for vanilla Ultimate Chicken Horse. It replaces UCH Game Performance 1.x, BetterPerformance and LevelLoadingOptimizer, so you don't need those anymore (keeping them installed is fine too). Requires **BepInEx 5**; Harmony is already included with BepInEx. No other plugin or extra DLL is required.
 
-Gains show mostly on busy maps (many moving blocks/projectiles). No specific FPS increase is promised; FPS caps can hide gains.
+Gains show mostly on very full maps (many moving blocks/projectiles). No specific FPS increase is promised; FPS caps can hide gains.
 
 ## Install
 
@@ -11,9 +11,21 @@ Gains show mostly on busy maps (many moving blocks/projectiles). No specific FPS
 3. Download `UCHGamePerformance.dll` from [Releases](../../releases) and put it in `BepInEx/plugins/UCH Game Performance/`.
 4. Start UCH. Read the startup lines in `BepInEx/LogOutput.log`: each feature reports `requested / applied / bypassed(reason)`.
 
-Other mods can stay installed; nothing has to be removed or disabled. LevelLoadingOptimizer works fine alongside this mod (also if your mod manager, e.g. Barnyard, cannot turn it off). BetterPerformance does some of the same things, so turn it off if your mod manager allows it; you do not need it with this mod. The mod logs which other plugins are loaded but never changes them. The separate optional benchmark tool can also be used; it is not required or bundled.
+Other mods can stay installed; nothing has to be removed or disabled. LevelLoadingOptimizer works fine alongside this mod (also if your mod manager, e.g. Barnyard, cannot turn it off). BetterPerformance does some of the same things, so turn it off if Barnyard allows it; you do not need it with this mod. The mod logs which other plugins are loaded but never changes them. The separate optional benchmark tool can also be used; it is not required or bundled.
 
 Only the explicitly supported game build applies optimizations. Other game builds keep all features bypassed. The mod writes only its own BepInEx config and log messages. It does not change game files, the registry, physics timing, hitboxes, projectile rotation, or gameplay layers.
+
+## Benchmarks
+
+Automated in-game tests on a heavy map (UCH level code **800M-VDMW**: a real map plus every block placed in competitive play, 2,848 blocks), free play, FPS cap lifted, Ryzen 5 5600X + RTX 4060, 30 s per run, two runs each:
+
+| | Avg FPS | Frames slower than 8.33 ms (per 30 s) | Worst frame |
+|---|---|---|---|
+| Vanilla | 67.6 | ~1,770 | ~41 ms |
+| 2.2.0 level (2.3 features off) | 206.4 | ~1,795 | ~22 ms |
+| **2.3.0** | **271.9** | **~347** | **~16 ms** |
+
+Every run with all metrics: [docs/UCH-Game-Performance-Test-Log.xlsx](docs/UCH-Game-Performance-Test-Log.xlsx). Measured in local free play; real party rounds and online play are not benchmarked yet.
 
 ## What it does and config options
 
@@ -59,17 +71,6 @@ Every row is a separate switch unless a value is shown. Section/key spelling mat
 
 No global logger suppression, event pruning, built-in profiler, hardware-specific worker tuning, or blanket debris lifecycle replacement is included. Experimental graphics/physics options require a visual and gameplay check on your maps. The screen-effect options retain the camera render-texture path; they replace the material blit rather than disabling the effect component.
 
-## Benchmarks
-
-Automated in-game tests on a heavy map (UCH level code **800M-VDMW**: a real map plus every block placed in competitive play, 2,848 blocks), free play, FPS cap lifted, Ryzen 5 5600X + RTX 4060, 30 s per run, two runs each:
-
-| | Avg FPS | Frames slower than 8.33 ms (per 30 s) | Worst frame |
-|---|---|---|---|
-| Vanilla | 67.6 | ~1,770 | ~41 ms |
-| 2.2.0 level (2.3 features off) | 206.4 | ~1,795 | ~22 ms |
-| **2.3.0** | **271.9** | **~347** | **~16 ms** |
-
-Every run with all metrics: [docs/UCH-Game-Performance-Test-Log.xlsx](docs/UCH-Game-Performance-Test-Log.xlsx). Measured in local free play; real versus rounds and online play are not benchmarked yet.
 
 ## Comparing results
 
