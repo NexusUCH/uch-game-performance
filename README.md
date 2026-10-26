@@ -1,49 +1,61 @@
 # UCH Game Performance 2.7.2
 
-One performance mod for vanilla Ultimate Chicken Horse. It replaces UCH Game Performance 1.x, BetterPerformance and LevelLoadingOptimizer, so you don't need those anymore (keeping them installed is fine too). Requires **BepInEx 5**; Harmony is already included with BepInEx. No other plugin or extra DLL is required.
+A performance mod for **Ultimate Chicken Horse**. It makes full, busy levels run and load much faster without changing how the game plays: same physics, same hitboxes, same timing, same rules. Every optimization is a separate switch in the config, and each one reports in the log whether it is active.
 
-Gains show mostly on very full maps (many moving blocks/projectiles). No specific FPS increase is promised; FPS caps can hide gains.
+It replaces the older UCH Game Performance 1.x, BetterPerformance and LevelLoadingOptimizer; you don't need those alongside it (keeping them installed is fine).
+
+## What to expect
+
+Measured on "Eternity" (level code **8VKK-7G4K**: about 4,000 blocks, 2,400 of them active, 1,700 barbed-wire pieces, 20-40 arrows in the air at any time), one of the heaviest community levels. Local free play, FPS cap lifted, fresh game start per run, 20 s recording each. Full details and the exact setup are in the [Eternity test report](docs/eternity-test-report-2.7.2.md).
+
+| | Average FPS | Typical frame | Worst 1 % of frames | Frames slower than 8.33 ms (per 20 s) |
+|---|---|---|---|---|
+| Vanilla | 108 | 12.1 ms | 15.7 ms | 1,201 |
+| **With the mod** | **214 - 224** | **3.3 - 3.4 ms** | **9.7 - 10.2 ms** | **315 - 446** |
+
+| | Portal entry to level ready | Longest freeze while loading |
+|---|---|---|
+| Vanilla | 29.8 s | 26.0 s |
+| **With the mod** | **5.7 - 5.9 s** | **2.0 - 2.1 s** |
+
+Roughly twice the frame rate, a frame 3.6x shorter, and a level that loads in 6 s instead of 30. The gain grows with how full a level is: a small level that already runs at several hundred FPS will not change much, a level that stutters will. Numbers are from one PC (Ryzen 5 5600X, RTX 4060); the ratio should carry over, the absolute FPS will not. Real rounds with players and online games were not benchmarked.
 
 ## Install
 
-1. Close UCH.
-2. Remove any older UCH Game Performance DLL, including copies in differently named folders.
-3. Download `UCHGamePerformance.dll` from [Releases](../../releases) and put it in `BepInEx/plugins/UCH Game Performance/` (or drop the whole folder from the release zip into `BepInEx/plugins`).
-4. Start UCH. Read the startup lines in `BepInEx/LogOutput.log`: each feature reports `requested / applied / bypassed(reason)`.
+1. Install [BepInEx 5](https://github.com/BepInEx/BepInEx/releases) for UCH if you don't have it yet (Harmony comes with it; nothing else is required).
+2. Close UCH.
+3. Remove any older UCH Game Performance DLL, including copies in differently named folders.
+4. Download `UCHGamePerformance.dll` from [Releases](../../releases) and put it in `BepInEx/plugins/UCH Game Performance/` (or drop the whole folder from the release zip into `BepInEx/plugins`).
+5. Start UCH. Open `BepInEx/LogOutput.log`: every option prints one line like `requested=True / applied=True / bypassed(none)`.
 
-Other mods can stay installed; nothing has to be removed or disabled. LevelLoadingOptimizer works fine alongside this mod (also if your mod manager, e.g. Barnyard, cannot turn it off). BetterPerformance does some of the same things, so turn it off if Barnyard allows it; you do not need it with this mod. The mod logs which other plugins are loaded but never changes them. The separate optional benchmark tool can also be used; it is not required or bundled.
+Other mods can stay installed; nothing has to be removed or disabled. LevelLoadingOptimizer works fine alongside this mod (also if your mod manager cannot turn it off). BetterPerformance does some of the same things, so turn it off if Barnyard allows it; you do not need it with this mod. The mod logs which other plugins are loaded but never changes them.
 
-Only the explicitly supported game build applies optimizations. Other game builds keep all features bypassed. The mod writes only its own BepInEx config and log messages. It does not change game files, the registry, physics timing, hitboxes, projectile rotation, or gameplay layers.
+Only the supported game build gets optimizations. On any other game build every option stays bypassed and the game runs vanilla. The mod writes only its own config file and its log lines; it does not change game files or the registry.
 
-## Benchmarks
+## Does it change gameplay?
 
-All numbers: local free play, FPS cap lifted, only this mod plus the measurement plugin loaded, Ryzen 5 5600X + RTX 4060.
+No. The mod never touches the physics step, the maximum time step, solver settings, gravity, collision layers, hitboxes or projectile rotation. Where it takes a shortcut, it takes it only when the result is provably the same, and several options check themselves while the game runs and switch themselves off (with a log line) if anything looks different from what they expect.
 
-Heavy competitive map (UCH level code **800M-VDMW**, 2,848 blocks), 30 s per run, two runs each:
+Checks done before each release, on the level above: hazards (spikes, saws, gloves, axes, flipping blocks, doors, shooters) end exactly the same way for a test character with and without the mod; arrows fire on the same physics step; nothing that is out of view can affect a player or an arrow differently than in vanilla.
 
-| | Avg FPS | Frames slower than 8.33 ms (per 30 s) | Worst frame |
-|---|---|---|---|
-| Vanilla | 67.6 | ~1,770 | ~41 ms |
-| 2.2.0 level (2.3 features off) | 206.4 | ~1,795 | ~22 ms |
-| **2.3.0** | **271.9** | **~347** | **~16 ms** |
+If you ever want to compare, set `General / Enabled` to `false` in the config: the mod stays installed but applies nothing.
 
-"Eternity" (level code **8VKK-7G4K**, 3,984 blocks, 2,404 of them active, 1,700 barbed-wire pieces, 760 block animations). FPS cap lifted to 1000 and VSync off (Engine/UncapFrameRate for the mod runs, set by the test bridge for vanilla), fresh game start per run, 15 s warm-up, 20 s recording, invincible test character at the start, same session, 2026-10-26:
+## What it optimizes
 
-| | Avg FPS | Median frame | 99th percentile frame | Worst frame | Frames slower than 8.33 ms (per 20 s) |
-|---|---|---|---|---|---|
-| Vanilla | 108.2 | 12.1 ms | 15.7 ms | 27.6 ms | 1,201 |
-| **2.7.2** run 1 | **214.0** | **3.4 ms** | **10.2 ms** | **19.8 ms** | **446** |
-| **2.7.2** run 2 | **224.2** | **3.3 ms** | **9.7 ms** | **20.3 ms** | **315** |
+In plain words; the exact list of switches follows below.
 
-Full Eternity test report (setup, counters, behaviour checks): [docs/eternity-test-report-2.7.2.md](docs/eternity-test-report-2.7.2.md). Roughly twice the frame rate and a median frame 3.6x shorter on this map. Earlier versions on the same map (other sessions, the game's own 300 FPS cap, so only the version-to-version steps are comparable): 2.4.2 115.5, 2.5.1 175.6-181.5, 2.6.0 203.6, 2.6.2 132.4 -> 2.7.0 192.3 (one busier back-to-back session).
+- **Loading.** Full levels used to freeze for many seconds when a level starts, because each block did some work that scanned the whole level again. Those scans are answered from a cache or done once: screen-wrap lookups, event sign-ups, the fullness meter, the beehive bee objects, the log file writes and a compression step that only matters online.
+- **Physics.** During the play phase, blocks that cannot move (plain blocks, wire, ice, glue, and the fixed base of shooters, gloves, spikes, cannons, doors and similar) get a static physics body, which the physics step does not simulate. Players, arrows and moving blocks collide with them exactly as before. Everything is switched back before anything can pick a block up, and a watchdog reverts any block that moves anyway.
+- **Block updates.** Unity called every block's per-step routine one by one, thousands of calls per physics step. The mod runs the same routine for all of them from one loop, in the same order and at the same moment of the frame.
+- **Animations out of view.** On a full level most block animations are off screen, yet Unity evaluated all of them every frame. Purely visual animations are not evaluated while nothing of them is visible. Gameplay animations keep their state machines and events running (shots fire at the same moment from the same spot) and only skip drawing while off screen; a block whose animation moves a collider stays fully live whenever any player or projectile could reach it.
+- **Projectiles and small things.** Reused arrays and objects instead of allocating them per shot or per hit, idle scripts switched off, a few per-frame scene searches replaced by the lists the game already keeps, and Unity's multithreaded 2D physics jobs turned on.
 
-Level loading, Eternity, same setup (2.7.2 vs vanilla, 2026-10-26): portal entry to level ready **29.8 s -> 5.7-5.9 s**, longest freeze frame during the load 26.0 s -> 2.0-2.1 s. Level loading on a 10,000-block level (2.4.2): worst frame 21 s -> 4.6 s, portal to ready 25 s -> 9.2 s. Full 2.3.0 test log: [docs/UCH-Game-Performance-Test-Log.xlsx](docs/UCH-Game-Performance-Test-Log.xlsx). Real party rounds and online play are not benchmarked.
+## Options
 
-## What it does and config options
+Config file: `BepInEx/config/com.nexus.uch.gameperformance.cfg`. **Restart UCH after every change.** All optimizations are on by default; the two frame-rate options and the process priority are off. Section / key spelling matches the config.
 
-Config: `BepInEx/config/com.nexus.uch.gameperformance.cfg`. **Restart UCH after every change.** Defaults below apply to a fresh config; existing 1.x CPU settings are preserved. Old F9/recorder and old graphics entries are unused. There is no menu or recording code in this mod.
-
-Every row is a separate switch unless a value is shown. Section/key spelling matches the config.
+<details>
+<summary>Full list of switches (click to expand)</summary>
 
 | Section / key | Default | What changes |
 |---|---|---|
@@ -52,7 +64,7 @@ Every row is a separate switch unless a value is shown. Section/key spelling mat
 | Engine / IncrementalGC | On | Sets the budget of incremental garbage collection, only if the game already uses it. |
 | Engine / IncrementalGCSliceMilliseconds | 1 ms | Budget, from 0.1 to 10 ms. Appears when incremental-GC tuning is requested on a supported build. |
 | Engine / TargetFrameRate | 0 | 0 leaves FPS and VSync alone. Positive values set a cap and disable VSync at startup. |
-| Engine / UncapFrameRate | Off | On lifts the FPS cap to 1000 and turns VSync off (the setting the benchmarks below use). Off keeps the game's own cap. TargetFrameRate wins when set. |
+| Engine / UncapFrameRate | Off | On lifts the FPS cap to 1000 and turns VSync off (the setting the benchmarks above use). Off keeps the game's own cap. TargetFrameRate wins when set. |
 | Engine / HighProcessPriority | Off | Optional Windows High process priority. |
 | CPU / ReuseFixedUpdateWait | On | Reuses a fixed-step coroutine wait object. |
 | CPU / SkipEmptyBlockLoops | On | Avoids starting block loops whose action does nothing. |
@@ -101,41 +113,26 @@ Every row is a separate switch unless a value is shown. Section/key spelling mat
 | Graphics / SlowMotionScreenEffect | Vanilla | `Vanilla`, `SkipWhenIdle` (plain blit with neutral shader inputs), or `Remove` (always plain blit). Active slowdown timing stays vanilla. Cosmetic opt-in. |
 | Experimental / QuickSaverRepair | Off; unavailable | Remains vanilla; blanket layer/body changes would change gameplay state. |
 
-No global logger suppression, event pruning, built-in profiler, hardware-specific worker tuning, or blanket debris lifecycle replacement is included. Experimental graphics/physics options require a visual and gameplay check on your maps. The screen-effect options retain the camera render-texture path; they replace the material blit rather than disabling the effect component.
+</details>
 
-## Comparing results
+No global logger suppression, event pruning, built-in profiler, hardware-specific worker tuning, or blanket debris lifecycle replacement is included.
 
-Use the same map, players, graphics settings and actions with and without the mod. Keep menus closed, allow warm-up, and repeat runs. FPS caps can hide throughput gains. Detailed owner instructions, including the profile switcher and separate UCH Perf Test tool, are in **TESTING.md**.
+## Measuring it yourself
+
+Use the same level, the same players and the same graphics settings with and without the mod (the `General / Enabled` switch), keep menus closed, give the level a few seconds of warm-up, and repeat each run. Lift the FPS cap (`Engine / UncapFrameRate = true`), otherwise the cap hides the difference. The separate UCH Perf Test plugin was used for the numbers above; it is optional.
+
+## Uninstall
+
+Close UCH and remove `BepInEx/plugins/UCH Game Performance`. You can delete its config file too. No game files need restoring.
 
 ## Building from source
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Short version: install UCH + BepInEx 5, then run `.\build.ps1` in PowerShell.
 
-## Uninstall
-
-Close UCH and remove `BepInEx/plugins/UCH Game Performance`. You can optionally delete its config file. No game files need restoring. Restart UCH to return to vanilla behavior.
-
 ## Credits
 
-Made by Nexus. Some early optimizations were inspired by Bojack's BetterPerformance / LevelLoadingOptimizer.
-The event-listener membership idea (Loading / ListenerMembershipSet) comes from Triple's UCH Listener Fix.
+Made by Nexus.
 
-2.0.1 fixes the pause-menu and mode-change softlock caused by event listeners
-being removed after dispatch. CPU/EventScratchLists remains On by default.
-The separate UCH Perf Test 1.0.1 package reduces census searches during capture.
-
-2.1.0: Experimental/PhysicsMultithreading is now On by default (owner A/B on a dense stress map: +17-22% average FPS, 75-87% fewer frames below 120 FPS, no visible gameplay difference). New General/Enabled master switch for before/after testing.
-
-2.5.0: three options for busy levels, found on "Eternity" (4,000 blocks, 1,700 barbed-wire pieces, 760 animations): Physics/StaticMultipieceBlocks (wire, ice and glue get static bodies too), Graphics/CullInvisibleAnimators (purely visual animations are skipped while off screen) and CPU/IdleAttachmentIndicators (finished attachment hints stop being called). Each is a separate switch and reports its own applied/bypassed line in the log.
-
-2.6.0: off-screen gameplay animations. Graphics/CullOffscreenAnimatorPoses skips the pose writes of drawing-only gameplay animations (shooters, cannons, teleporters, beehives, blowers, fans, crumble blocks, treadmills, punching plants) outside the camera view; animation events and state machines keep running, so shot timing and spawn points are unchanged. Graphics/CullOffscreenMoverAnimators does the same for animations that move a collider (gloves, saws, spikes, flipping blocks, axes, lighters, doors): off screen the collider freezes and snaps back when the block comes into view (only off-screen projectiles can notice). CPU/FarFerrisWheels skips far-away ferris wheels' per-step rotation and applies the kept time at once when they come back (idea from a friend's FerrisCull plugin). Each is a separate switch. Lab A/B on Eternity: see the Benchmarks section on GitHub.
-
-2.6.2: off-screen movers and ferris wheels can no longer change what happens to a projectile. 2.6.0 froze a glove, saw, spike, door or ferris wheel outside the view even while an arrow, puck or cannon animal was about to reach it, so an off-screen arrow could pass where vanilla would have blocked it. Now every player and every live projectile is placed in a 12-unit grid at every physics step, each with the distance it can travel before the next check, and a mover or wheel stays live while anything is within reach of its collider (reach measured per block type: glove 10, axe 9, saw 6, doors 5-6, lighter 5, spikes and flipping block 4 units). The check is an exact distance test over the neighbouring grid cells, so its cost does not grow with the number of projectiles in flight. Drawing-only animations keep the plain view rule, since they move no collider. The view is now read from the game's own gameplay camera, so the options also work with "local cam" in online games (remote players count as interest points), and a switch to "all cam" un-freezes everything in the same frame the view changes. (2.6.1 was a lab-only build of the same fix with a coarser grid.)
-
-2.7.2: review fixes before the full release, plus one optional switch: Engine/UncapFrameRate (off by default) lifts the FPS cap to 1000 and turns VSync off, the setting all benchmarks here are taken with. The cap is applied right after the game sets its own 300 FPS cap in GameState.Start; the game has no GameState.Awake, so the Engine/TargetFrameRate option inherited from 2.0.0 had never attached (it reported "missing method" when switched on) and now attaches at the same place. 2.7.1 was a lab-only build of the same fixes whose uncap option still used the missing method. The travel-segment test of 2.7.0 assumed straight flight; a projectile's path can bend between two checks (cannon animals fall, a black hole pulls arrows in with up to 300 units/s^2, the blower pushes with up to 5), so the segment's radius now grows by the distance such an acceleration can move it within the horizon (0.5 x acceleration x horizon^2, with the black hole term only near a black hole). On a normal map that is about one unit next to a black hole and a few hundredths elsewhere, so nothing changes for FPS; on very full maps (over 400 reviewed animations, where a mover is checked every second frame) it closes a gap that could have let a black hole bend an arrow into a frozen off-screen collider. Also: the cell clamp for absurd velocities now keeps the cells around the projectile's current position; the block-destroy bookkeeping of CPU/CentralPlaceableTick is wrapped like every other hook and a part-type failure switches off only CPU/CentralPartTick.
-
-2.7.0: more FPS without touching gameplay. The projectile test of 2.6.2 now uses each projectile's travel segment (where its velocity carries it before the next check) instead of a circle around it, about four times less area, so an arrow flying away from a glove or saw no longer keeps it live. New CPU/CentralPartTick: barbed-wire, ice and glue pieces and their invisible parent blocks (about 1,900 native per-step calls on a full wire level) are ticked from the mod's own loop like plain blocks already were; the parent's per-frame part check runs from that loop too. New Physics/StaticActiveBlocks: the root bodies of active blocks that never move themselves (shooters, gloves, spikes, cannons, teleporters, springs, black holes, beehives, blowers, doors, lighters, axes, saws, flipping blocks, punching plants, hydrants, hockey shooters, goal blocks) and the blocks attached to them get a Static body during play, like plain blocks since 2.3.0. Each is a separate switch.
-
-2.5.1: the static-body watchdog now reverts a block only when its position or rotation really changed. Unity also flags a block's children as "changed" when the parent's body switches type, which made the 2.5.0 watchdog hand about 400 attached wire pieces back to the physics step at every play start for nothing.
-
-2.2.0: Projectiles/DebrisPooling is now active for miss debris with a known lifecycle (arrow and tennis-ball debris). New CPU/LevelFullnessCount removes a ~7 ms hitch that creative/free play hit every 21 network messages.
+- **Triple** for the loading optimizer (LevelLoadingOptimizer) and the event-listener membership idea (UCH Listener Fix) that this mod builds on.
+- **Milena** for testing.
+- Bojack's BetterPerformance inspired some of the early optimizations; the ferris-wheel idea comes from a friend's FerrisCull plugin.
