@@ -38,10 +38,15 @@ namespace UCHGamePerformance
         // ancestor rule, the live state checks, every revert path and the watchdog apply unchanged. Blocks attached to
         // such a root (wire on a glove block) now pass the ancestor rule too. Exact types only.
         internal static readonly Feature Roots = new Feature("Physics/StaticActiveBlocks");
+        // 2.7.3 (owner-found bug): Box2D never creates a contact between two Static bodies, but this game's Unity build does
+        // create trigger contacts between two Kinematic bodies (measured live: K-K, K-S, S-K yes, S-S no). A boxing glove's
+        // fist (a trigger fixture of the glove's own body, moved by its animation) that enters another glove's projectile
+        // trigger punches that glove in vanilla; with both roots Static nothing happened. So only root types whose colliders
+        // never move stay in the list; every type whose animation moves a collider (gloves, spikes, doors, lighters, axes,
+        // saws, flipping blocks, punching plants, hydrants, hockey shooters, and springs/beehives to be safe) keeps its
+        // Kinematic body, which guarantees a Kinematic side in every pair of block fixtures that can meet.
         private static readonly HashSet<Type> RootTypes = new HashSet<Type> {
-            typeof(ProjectileLauncher), typeof(PunchingBlock), typeof(PressureTriggerSpikes), typeof(AnimalCannon), typeof(Teleporter),
-            typeof(Spring), typeof(Blackhole), typeof(Beehive), typeof(UpBlower), typeof(AutoDoor), typeof(Lighter), typeof(SwingingAxe),
-            typeof(LinearSaw), typeof(FlippingBlock), typeof(PunchingPlant), typeof(FireHydrant), typeof(HockeyShooter), typeof(GoalBlock) };
+            typeof(ProjectileLauncher), typeof(AnimalCannon), typeof(Teleporter), typeof(Blackhole), typeof(UpBlower), typeof(GoalBlock) };
         private static int rootBodies;
         private static readonly HashSet<string> WideBlocks = new HashSet<string> { "MultipieceBlock", "MultipiecePart", "Ice", "HoneyPiece" };
         private static readonly HashSet<string> WideVisual = new HashSet<string> { "Animator", "AttachmentIndicator", "CanAttachIndicator", "HoneySticker" };
