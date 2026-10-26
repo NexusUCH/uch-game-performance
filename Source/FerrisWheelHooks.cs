@@ -9,9 +9,12 @@ namespace UCHGamePerformance
     // total time: while a wheel is outside the camera rectangle (margin 12 units plus the wheel's own radius, see View)
     // the step is skipped and its deltaTime is kept; the first step back in view runs once with the kept time added, so
     // the wheel stands exactly where the skipped steps would have put it (one rotation by the summed angle instead of
-    // many small ones). Players are always inside the view, so nobody can stand on a skipped wheel; only off-screen
-    // projectiles could meet a platform that has not caught up yet. Reset (phase changes, free-play mode switch) drops
-    // the kept time. When the option is off or has failed, the prefix only flushes any kept time and runs vanilla.
+    // many small ones). 2.6.2: the wheel also runs normally while any player or any live projectile is within its reach
+    // (View.NearInterest: the wheel's radius plus 1 unit, plus the point's own travel radius; the interest grid is
+    // rebuilt every physics step), so nobody and nothing can meet a platform that has not caught up yet. The view
+    // rectangle is read after the camera's own FixedUpdate, so a switch to "all cam" flushes in the same physics step.
+    // Reset (phase changes, free-play mode switch) drops the kept time. When the option is off or has failed, the
+    // prefix only flushes any kept time and runs vanilla.
     // Idea from a friend's FerrisCull plugin (2026-10-26), with the UI-camera trap and the per-step player search removed.
     internal static class FerrisWheelHooks
     {
@@ -48,7 +51,8 @@ namespace UCHGamePerformance
                 if (spinner == null) return true;
                 entry = Table.GetOrCreateValue(__instance);
                 if (!entry.Ready) { entry.Radius = Radius(__instance, spinner); entry.Ready = true; }
-                if (!View.Refresh() || View.Contains(spinner.position, Margin + entry.Radius))
+                Vector3 center = spinner.position;
+                if (!View.Refresh() || View.Contains(center, Margin + entry.Radius) || View.NearInterest(center, entry.Radius + 1f))
                 {
                     near++;
                     if (entry.Owed > 0) { __0 += (float)entry.Owed; entry.Owed = 0; flushes++; }

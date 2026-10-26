@@ -21,14 +21,18 @@ namespace UCHGamePerformance
     //    (the belt parts are positioned by script), punching plants. Off screen, only pixels nobody sees are skipped.
     //  * Graphics/CullOffscreenMoverAnimators: controllers whose clips do move or switch colliders (boxing glove arm, saw
     //    blade, spikes, flipping block, swinging axe, lighter flame, both door types). Off screen the collider keeps the
-    //    pose it had when it left the view and snaps to the live pose the moment the block is back in view. Players are
-    //    always on screen; only off-screen projectiles can meet a frozen collider. Owner's decision (2026-10-26).
+    //    pose it had when it left the view and snaps to the live pose the moment the block is back in view. 2.6.2: a
+    //    mover is also kept live while any player or any live projectile is within its collider reach (MoverReach,
+    //    View.NearInterest), so an off-screen arrow, puck or cannon animal meets the same collider pose as in vanilla;
+    //    only movers that nothing can touch are frozen. Owner's decision (2026-10-26).
     //
     // Unity decides "visible" from the animator's renderers, which also fails for a block in view whose sprites are
     // switched off or blank, so this hook does not rely on it alone: a view loop keeps every tracked animator inside the
     // camera rectangle (plus a 12-unit margin) in its original mode and culls only animators outside it. The gameplay
-    // camera is found as the enabled camera whose world rectangle at the block plane contains every living player (UCH's
-    // Camera.main is the UI camera); if no camera qualifies, nothing is culled that frame.
+    // camera is the game's own ZoomCamera.CurrentZoomCamera (UCH's Camera.main is the UI camera); it follows the local
+    // players ("local cam") or all players ("all cam"), and the rectangle is read after the camera's own FixedUpdate in
+    // the same frame, so a switch between the two modes un-culls in the frame the view changes (2.6.2). If the camera
+    // is missing or no living player is inside its rectangle, nothing is culled that frame.
     internal static class AnimatorPoseCullHooks
     {
         internal static readonly Feature Poses = new Feature("Graphics/CullOffscreenAnimatorPoses");
@@ -43,12 +47,20 @@ namespace UCHGamePerformance
         private static readonly HashSet<string> MoverList = new HashSet<string> {
             "BoxingGlove-Punch", "LinearSaw", "PressureTriggerAnimator", "FlippingBlock", "SwingingAxe", "Lighter",
             "autoDoor1x4", "Oneway Door-OnewayDoor1x4.000" };
+        // 2.6.2: how far any enabled collider below a mover animator reaches from the animator's transform, measured
+        // live on Eternity (view-check.cs census: glove 7.7, axe 6.7, saw 3.5, one-way door 3.2, auto door 2.5, lighter
+        // 2.3, spikes 2.0, flipping block 1.1) plus 2 units of slack; a projectile within this reach (plus its own
+        // travel radius) keeps the mover live. Controllers not listed here fall back to the 12-unit margin.
+        private static readonly Dictionary<string, float> MoverReach = new Dictionary<string, float> {
+            { "BoxingGlove-Punch", 10f }, { "SwingingAxe", 9f }, { "LinearSaw", 6f }, { "Oneway Door-OnewayDoor1x4.000", 6f },
+            { "autoDoor1x4", 5f }, { "Lighter", 5f }, { "PressureTriggerAnimator", 4f }, { "FlippingBlock", 4f } };
 
         private sealed class Entry
         {
             internal Animator Animator;
             internal Transform Transform;
             internal AnimatorCullingMode Original;
+            internal float Reach;
             internal bool Mover, Culled;
         }
 
@@ -98,6 +110,7 @@ namespace UCHGamePerformance
                     entry.Transform = animator.transform;
                     entry.Original = animator.cullingMode;
                     entry.Mover = mover;
+                    if (!mover || !MoverReach.TryGetValue(controller.name, out entry.Reach)) entry.Reach = Margin;
                     Tracked.Add(entry);
                     adopted++;
                 }
@@ -120,6 +133,7 @@ namespace UCHGamePerformance
 
         private static void Step()
         {
+            View.Slices = (Tracked.Count + PerFrame - 1) / PerFrame;
             bool valid = View.Refresh();
             // With a valid view, a slice of the list per frame; without one, every animator goes back to its own mode now.
             int budget = valid ? Math.Min(PerFrame, Tracked.Count) : Tracked.Count;
@@ -136,7 +150,10 @@ namespace UCHGamePerformance
                     if (entry.Culled) culledNow--;
                     continue;
                 }
-                bool cull = valid && !View.Contains(entry.Transform.position, Margin);
+                // Event-only clips write no collider pose: the camera rectangle alone decides. A mover's collider can be
+                // met by a player or a projectile, so it also stays live while one is within its reach (2.6.2).
+                Vector3 position = entry.Transform.position;
+                bool cull = valid && !View.Contains(position, Margin) && !(entry.Mover && View.NearInterest(position, entry.Reach));
                 if (cull != entry.Culled)
                 {
                     entry.Animator.cullingMode = cull ? AnimatorCullingMode.CullUpdateTransforms : entry.Original;
@@ -172,37 +189,123 @@ namespace UCHGamePerformance
     }
 
     // The gameplay camera's world rectangle at the block plane (z = 0), computed at most once per frame and shared by
-    // the animator view loop and the far-ferris-wheel option. A camera qualifies only while every living, active
-    // player stands inside its rectangle (with a small allowance for camera lag); UCH's Camera.main is the UI camera.
+    // the animator view loop and the far-ferris-wheel option. The camera is the game's ZoomCamera.CurrentZoomCamera
+    // (set by the level's ZoomCamera at Start; UCH's Camera.main is the UI camera). It qualifies while at least one
+    // living, active player stands inside its rectangle (with a small allowance for camera lag): with "local cam" the
+    // local players, with "all cam" everyone. Remote players outside the rectangle are no longer a reason to stop
+    // culling (2.6.2); they count as interest points instead.
+    //
+    // Interest points (2.6.2): every active player and every live projectile (Projectile.AllProjectiles: arrows, pucks,
+    // cannon animals, all with a trigger collider and a body) is stored in a 12-unit cell grid (per-cell linked lists in
+    // flat arrays, no allocation after warm-up). Each point carries its own radius: a player 4 units, a projectile
+    // 1 unit plus the distance it can travel before the next check (its current speed times the horizon: the physics
+    // steps of one frame per view-loop slice, plus one). NearInterest(p, reach) is an exact circle test, point by point,
+    // over the surrounding cells: true when some point lies within reach + its radius of p. Rebuilt whenever the frame
+    // or the physics step changes (Time.fixedTime), so a ferris wheel checked every step sees positions at most one
+    // step old. Eternity census (2026-10-26): 14-40 projectiles in flight at 30 units/s, 60 Hz physics, at most 3 steps
+    // per frame; a 2.6.1 build that marked whole cells conservatively kept 75 of 145 movers live and lost 13 FPS.
     internal static class View
     {
         private const float PlayerAllowance = 4f;
-        private static Camera camera;
+        private const float PlayerRadius = 4f;
+        private const float Cell = 12f;
         private static int frame = -1;
+        private static float fixedStamp = -1f;
         private static bool valid;
         private static float minX, maxX, minY, maxY;
-        private static long rejects, searches, refreshes;
+        private static readonly Dictionary<long, int> Heads = new Dictionary<long, int>();
+        private static float[] px = new float[256], py = new float[256], pr = new float[256];
+        private static int[] link = new int[256];
+        private static int count, lastPoints, slices = 1;
+        private static float maxRadius, lastHorizon;
+        private static long rejects, refreshes, nearHits, nearMisses;
+
+        // Set by the animator view loop: how many frames pass between two checks of the same animator.
+        internal static int Slices { set { slices = value < 1 ? 1 : value; } }
 
         internal static bool Refresh()
         {
             int now = Time.frameCount;
-            if (now == frame) return valid;
+            float fixedNow = Time.fixedTime;
+            if (now == frame && fixedNow == fixedStamp) return valid;
             frame = now;
+            fixedStamp = fixedNow;
             refreshes++;
-            valid = Rect(camera) && PlayersInside();
-            if (!valid)
-            {
-                searches++;
-                Camera[] all = Camera.allCameras;
-                for (int i = 0; i < all.Length; i++)
-                {
-                    Camera candidate = all[i];
-                    if (candidate == camera) continue;
-                    if (Rect(candidate) && PlayersInside()) { camera = candidate; valid = true; break; }
-                }
-            }
+            valid = Rect(ZoomCamera.CurrentZoomCamera) && PlayerInside();
             if (!valid) rejects++;
+            else MarkInterest();
             return valid;
+        }
+
+        private static void MarkInterest()
+        {
+            Heads.Clear();
+            count = 0;
+            maxRadius = 0f;
+            float fixedDelta = Time.fixedDeltaTime;
+            int stepsPerFrame = fixedDelta > 0f ? (int)Math.Ceiling(Time.maximumDeltaTime / fixedDelta) : 1;
+            if (stepsPerFrame < 1) stepsPerFrame = 1;
+            float horizon = (1 + stepsPerFrame * slices) * fixedDelta;
+            lastHorizon = horizon;
+            List<Character> characters = Character.AllCharacters;
+            if (characters != null)
+                for (int i = 0; i < characters.Count; i++)
+                {
+                    Character character = characters[i];
+                    if (character != null && character.gameObject.activeInHierarchy) Mark(character.transform.position, PlayerRadius);
+                }
+            List<Projectile> projectiles = Projectile.AllProjectiles;
+            if (projectiles != null)
+                for (int i = 0; i < projectiles.Count; i++)
+                {
+                    Projectile projectile = projectiles[i];
+                    if (projectile == null) continue;
+                    Rigidbody2D body = projectile.GetComponent<Rigidbody2D>();
+                    float speed = body == null ? 60f : body.velocity.magnitude;
+                    Mark(projectile.transform.position, 1f + speed * horizon);
+                }
+            lastPoints = count;
+        }
+
+        private static void Mark(Vector3 p, float radius)
+        {
+            if (count == px.Length)
+            {
+                int size = px.Length * 2;
+                Array.Resize(ref px, size); Array.Resize(ref py, size); Array.Resize(ref pr, size); Array.Resize(ref link, size);
+            }
+            px[count] = p.x; py[count] = p.y; pr[count] = radius;
+            if (radius > maxRadius) maxRadius = radius;
+            long key = Key(Mathf.FloorToInt(p.x / Cell), Mathf.FloorToInt(p.y / Cell));
+            int head;
+            link[count] = Heads.TryGetValue(key, out head) ? head : -1;
+            Heads[key] = count;
+            count++;
+        }
+
+        private static long Key(int cx, int cy) { return ((long)cx << 32) | (uint)cy; }
+
+        // True when a player or a projectile lies within reach + its own radius of p (exact circle test).
+        internal static bool NearInterest(Vector3 p, float reach)
+        {
+            if (count != 0)
+            {
+                int n = (int)Math.Ceiling((reach + maxRadius) / Cell);
+                int cx = Mathf.FloorToInt(p.x / Cell), cy = Mathf.FloorToInt(p.y / Cell);
+                for (int dx = -n; dx <= n; dx++)
+                    for (int dy = -n; dy <= n; dy++)
+                    {
+                        int i;
+                        if (!Heads.TryGetValue(Key(cx + dx, cy + dy), out i)) continue;
+                        for (; i >= 0; i = link[i])
+                        {
+                            float ddx = px[i] - p.x, ddy = py[i] - p.y, r = reach + pr[i];
+                            if (ddx * ddx + ddy * ddy <= r * r) { nearHits++; return true; }
+                        }
+                    }
+            }
+            nearMisses++;
+            return false;
         }
 
         private static bool Rect(Camera c)
@@ -219,19 +322,17 @@ namespace UCHGamePerformance
             return width > 1f && height > 1f && width < 3000f && height < 3000f;   // NaN fails these too
         }
 
-        private static bool PlayersInside()
+        private static bool PlayerInside()
         {
             List<Character> all = Character.AllCharacters;
             if (all == null) return false;
-            int living = 0;
             for (int i = 0; i < all.Count; i++)
             {
                 Character character = all[i];
                 if (character == null || character.Dead || !character.gameObject.activeInHierarchy) continue;
-                living++;
-                if (!Contains(character.transform.position, PlayerAllowance)) return false;
+                if (Contains(character.transform.position, PlayerAllowance)) return true;
             }
-            return living > 0;
+            return false;
         }
 
         internal static bool Contains(Vector3 p, float margin)
@@ -241,8 +342,11 @@ namespace UCHGamePerformance
 
         internal static string Status()
         {
+            Camera camera = ZoomCamera.CurrentZoomCamera;
             return "camera=" + (camera == null ? "none" : camera.name) + " valid=" + valid + " rect=" + minX.ToString("0.0") + "," + minY.ToString("0.0") +
-                ".." + maxX.ToString("0.0") + "," + maxY.ToString("0.0") + " refreshes=" + refreshes + " rejects=" + rejects + " searches=" + searches;
+                ".." + maxX.ToString("0.0") + "," + maxY.ToString("0.0") + " refreshes=" + refreshes + " rejects=" + rejects +
+                " points=" + lastPoints + " cells=" + Heads.Count + " maxRadius=" + maxRadius.ToString("0.0") + " horizon=" + lastHorizon.ToString("0.000") +
+                " slices=" + slices + " nearHits=" + nearHits + " nearMisses=" + nearMisses;
         }
     }
 }
