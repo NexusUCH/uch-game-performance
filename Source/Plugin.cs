@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace UCHGamePerformance
 {
-    [BepInPlugin(Guid, "UCH Game Performance", "2.4.1")]
+    [BepInPlugin(Guid, "UCH Game Performance", "2.4.2")]
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.nexus.uch.gameperformance";
@@ -64,7 +64,7 @@ namespace UCHGamePerformance
         {
             Feature.Log = Logger;
             started = true;
-            Logger.LogInfo("UCH Game Performance 2.4.1; vanilla target; all options require a restart.");
+            Logger.LogInfo("UCH Game Performance 2.4.2; vanilla target; all options require a restart.");
             // Master switch for A/B testing (UCH Perf Test can flip it by name); false leaves the game fully vanilla.
             if (!Config.Bind("General", "Enabled", true, "Master switch. false = this mod applies nothing and the game runs vanilla. Restart the game after changing this option.").Value)
             {
@@ -109,6 +109,7 @@ namespace UCHGamePerformance
             Enable(PlacementLogHooks.Quiet, true, "Remove the per-block \"Placing ...\" log line (thousands per level start); other logging stays.", PlacementLogHooks.Install);
             Enable(FullnessUiHooks.Defer, true, "While a level's blocks are being restored, hold back the free-play fullness meter's per-block text updates and recount it once afterwards.", FullnessUiHooks.Install);
             Enable(GcHooks.Pause, true, "Pause automatic garbage collection for the level-start frame only; it resumes after the next frame.", GcHooks.Install);
+            Enable(BeehiveHooks.EarlyBees, true, "When a level starts, each beehive's Start switches off its ~60 bee objects, and in that frame every new component still has a queued Start, so each switch-off makes Unity scan that queue (16 s for 499 hives on a 10,000-block level). The bee objects are switched off already when the hive awakes, before anything is queued for them; the hive's Start and Reset run unchanged.", BeehiveHooks.Install);
             Enable(ListenerHooks.Membership, true, "Blocks and projectiles check event-listener membership with a hash set mirroring each listener list instead of scanning the whole list per registration; list contents and order stay vanilla.", ListenerHooks.Install);
             Enable(LogFileHooks.Buffer, true, "The game appends each log line to its own log file by opening and closing the file per line (~0.6 ms each, thousands per level start). Same text and order, written in batches every 250 ms and on quit.", LogFileHooks.Install);
             Enable(StaticBlockHooks.Static, true, "During the play phase give motionless plain blocks a Static body (skipped by the physics step); reverted before anything can move them.", StaticBlockHooks.Install);
