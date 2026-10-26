@@ -133,6 +133,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Short version: install UCH + BepInEx 5, 
 
 Made by Nexus.
 
-- **Triple** for the loading optimizer (LevelLoadingOptimizer), the event-listener membership idea (UCH Listener Fix) and the ferris-wheel idea (FerrisCull) that this mod builds on.
+- **Triple** for parts of the loading optimizer, the event-listener membership idea (UCH Listener Fix) and the ferris-wheel idea (FerrisCull) that this mod builds on.
 - **Milena** for testing.
 - Bojack's BetterPerformance inspired some of the early optimizations.
