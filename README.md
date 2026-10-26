@@ -1,4 +1,4 @@
-# UCH Game Performance 2.7.0
+# UCH Game Performance 2.7.2
 
 One performance mod for vanilla Ultimate Chicken Horse. It replaces UCH Game Performance 1.x, BetterPerformance and LevelLoadingOptimizer, so you don't need those anymore (keeping them installed is fine too). Requires **BepInEx 5**; Harmony is already included with BepInEx. No other plugin or extra DLL is required.
 
@@ -27,17 +27,15 @@ Heavy competitive map (UCH level code **800M-VDMW**, 2,848 blocks), 30 s per run
 | 2.2.0 level (2.3 features off) | 206.4 | ~1,795 | ~22 ms |
 | **2.3.0** | **271.9** | **~347** | **~16 ms** |
 
-"Eternity" (level code **8VKK-7G4K**, 4,000 blocks, 1,700 barbed-wire pieces, 760 block animations), 20 s per run, fresh game start per run:
+"Eternity" (level code **8VKK-7G4K**, 3,984 blocks, 2,404 of them active, 1,700 barbed-wire pieces, 760 block animations). FPS cap lifted to 1000 and VSync off (Engine/UncapFrameRate for the mod runs, set by the test bridge for vanilla), fresh game start per run, 15 s warm-up, 20 s recording, invincible test character at the start, same session, 2026-10-26:
 
-| | Avg FPS | Median frame | 99th percentile frame |
-|---|---|---|---|
-| 2.4.2 | 115.5 | 9.6 ms | 18.1 ms |
-| 2.5.1 | 175.6 - 181.5 | 3.6 - 3.9 ms | 12.3 - 13.0 ms |
-| 2.6.0 | 203.6 | 3.3 ms | 11.6 ms |
-| 2.6.2 (same session as 2.7.0, busier machine) | 132.4 | 5.4 ms | 16.8 ms |
-| **2.7.0** | **192.3** | **3.6 ms** | **11.5 ms** |
+| | Avg FPS | Median frame | 99th percentile frame | Worst frame | Frames slower than 8.33 ms (per 20 s) |
+|---|---|---|---|---|---|
+| Vanilla | 108.2 | 12.1 ms | 15.7 ms | 27.6 ms | 1,201 |
+| **2.7.2** run 1 | **214.0** | **3.4 ms** | **10.2 ms** | **19.8 ms** | **446** |
+| **2.7.2** run 2 | **224.2** | **3.3 ms** | **9.7 ms** | **20.3 ms** | **315** |
 
-The 2.6.2 and 2.7.0 rows come from one back-to-back session with other programs running, so compare them with each other rather than with the rows above; 2.7.0 also cut the worst frame from 47 to 16 ms in that session.
+Roughly twice the frame rate and a median frame 3.6x shorter on this map. Earlier versions on the same map (other sessions, the game's own 300 FPS cap, so only the version-to-version steps are comparable): 2.4.2 115.5, 2.5.1 175.6-181.5, 2.6.0 203.6, 2.6.2 132.4 -> 2.7.0 192.3 (one busier back-to-back session).
 
 Level loading on a 10,000-block level (2.4.2): worst frame 21 s -> 4.6 s, portal to ready 25 s -> 9.2 s. Full 2.3.0 test log: [docs/UCH-Game-Performance-Test-Log.xlsx](docs/UCH-Game-Performance-Test-Log.xlsx). Real party rounds and online play are not benchmarked.
 
@@ -54,6 +52,7 @@ Every row is a separate switch unless a value is shown. Section/key spelling mat
 | Engine / IncrementalGC | On | Sets the budget of incremental garbage collection, only if the game already uses it. |
 | Engine / IncrementalGCSliceMilliseconds | 1 ms | Budget, from 0.1 to 10 ms. Appears when incremental-GC tuning is requested on a supported build. |
 | Engine / TargetFrameRate | 0 | 0 leaves FPS and VSync alone. Positive values set a cap and disable VSync at startup. |
+| Engine / UncapFrameRate | Off | On lifts the FPS cap to 1000 and turns VSync off (the setting the benchmarks below use). Off keeps the game's own cap. TargetFrameRate wins when set. |
 | Engine / HighProcessPriority | Off | Optional Windows High process priority. |
 | CPU / ReuseFixedUpdateWait | On | Reuses a fixed-step coroutine wait object. |
 | CPU / SkipEmptyBlockLoops | On | Avoids starting block loops whose action does nothing. |
@@ -132,6 +131,8 @@ The separate UCH Perf Test 1.0.1 package reduces census searches during capture.
 2.6.0: off-screen gameplay animations. Graphics/CullOffscreenAnimatorPoses skips the pose writes of drawing-only gameplay animations (shooters, cannons, teleporters, beehives, blowers, fans, crumble blocks, treadmills, punching plants) outside the camera view; animation events and state machines keep running, so shot timing and spawn points are unchanged. Graphics/CullOffscreenMoverAnimators does the same for animations that move a collider (gloves, saws, spikes, flipping blocks, axes, lighters, doors): off screen the collider freezes and snaps back when the block comes into view (only off-screen projectiles can notice). CPU/FarFerrisWheels skips far-away ferris wheels' per-step rotation and applies the kept time at once when they come back (idea from a friend's FerrisCull plugin). Each is a separate switch. Lab A/B on Eternity: see the Benchmarks section on GitHub.
 
 2.6.2: off-screen movers and ferris wheels can no longer change what happens to a projectile. 2.6.0 froze a glove, saw, spike, door or ferris wheel outside the view even while an arrow, puck or cannon animal was about to reach it, so an off-screen arrow could pass where vanilla would have blocked it. Now every player and every live projectile is placed in a 12-unit grid at every physics step, each with the distance it can travel before the next check, and a mover or wheel stays live while anything is within reach of its collider (reach measured per block type: glove 10, axe 9, saw 6, doors 5-6, lighter 5, spikes and flipping block 4 units). The check is an exact distance test over the neighbouring grid cells, so its cost does not grow with the number of projectiles in flight. Drawing-only animations keep the plain view rule, since they move no collider. The view is now read from the game's own gameplay camera, so the options also work with "local cam" in online games (remote players count as interest points), and a switch to "all cam" un-freezes everything in the same frame the view changes. (2.6.1 was a lab-only build of the same fix with a coarser grid.)
+
+2.7.2: review fixes before the full release, plus one optional switch: Engine/UncapFrameRate (off by default) lifts the FPS cap to 1000 and turns VSync off, the setting all benchmarks here are taken with. The cap is applied right after the game sets its own 300 FPS cap in GameState.Start; the game has no GameState.Awake, so the Engine/TargetFrameRate option inherited from 2.0.0 had never attached (it reported "missing method" when switched on) and now attaches at the same place. 2.7.1 was a lab-only build of the same fixes whose uncap option still used the missing method. The travel-segment test of 2.7.0 assumed straight flight; a projectile's path can bend between two checks (cannon animals fall, a black hole pulls arrows in with up to 300 units/s^2, the blower pushes with up to 5), so the segment's radius now grows by the distance such an acceleration can move it within the horizon (0.5 x acceleration x horizon^2, with the black hole term only near a black hole). On a normal map that is about one unit next to a black hole and a few hundredths elsewhere, so nothing changes for FPS; on very full maps (over 400 reviewed animations, where a mover is checked every second frame) it closes a gap that could have let a black hole bend an arrow into a frozen off-screen collider. Also: the cell clamp for absurd velocities now keeps the cells around the projectile's current position; the block-destroy bookkeeping of CPU/CentralPlaceableTick is wrapped like every other hook and a part-type failure switches off only CPU/CentralPartTick.
 
 2.7.0: more FPS without touching gameplay. The projectile test of 2.6.2 now uses each projectile's travel segment (where its velocity carries it before the next check) instead of a circle around it, about four times less area, so an arrow flying away from a glove or saw no longer keeps it live. New CPU/CentralPartTick: barbed-wire, ice and glue pieces and their invisible parent blocks (about 1,900 native per-step calls on a full wire level) are ticked from the mod's own loop like plain blocks already were; the parent's per-frame part check runs from that loop too. New Physics/StaticActiveBlocks: the root bodies of active blocks that never move themselves (shooters, gloves, spikes, cannons, teleporters, springs, black holes, beehives, blowers, doors, lighters, axes, saws, flipping blocks, punching plants, hydrants, hockey shooters, goal blocks) and the blocks attached to them get a Static body during play, like plain blocks since 2.3.0. Each is a separate switch.
 
