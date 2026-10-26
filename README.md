@@ -2,7 +2,7 @@
 
 One performance mod for vanilla Ultimate Chicken Horse. It replaces UCH Game Performance 1.x, BetterPerformance and LevelLoadingOptimizer, so you don't need those anymore (keeping them installed is fine too). Requires **BepInEx 5**; Harmony is already included with BepInEx. No other plugin or extra DLL is required.
 
-Gains show mostly on busy maps (many moving blocks/projectiles). No specific FPS increase is promised; FPS caps can hide gains.
+Gains show mostly on very full maps (many moving blocks/projectiles). No specific FPS increase is promised; FPS caps can hide gains.
 
 ## Install
 
@@ -11,9 +11,30 @@ Gains show mostly on busy maps (many moving blocks/projectiles). No specific FPS
 3. Download `UCHGamePerformance.dll` from [Releases](../../releases) and put it in `BepInEx/plugins/UCH Game Performance/` (or drop the whole folder from the release zip into `BepInEx/plugins`).
 4. Start UCH. Read the startup lines in `BepInEx/LogOutput.log`: each feature reports `requested / applied / bypassed(reason)`.
 
-Other mods can stay installed; nothing has to be removed or disabled. LevelLoadingOptimizer works fine alongside this mod (also if your mod manager, e.g. Barnyard, cannot turn it off). BetterPerformance does some of the same things, so turn it off if your mod manager allows it; you do not need it with this mod. The mod logs which other plugins are loaded but never changes them. The separate optional benchmark tool can also be used; it is not required or bundled.
+Other mods can stay installed; nothing has to be removed or disabled. LevelLoadingOptimizer works fine alongside this mod (also if your mod manager, e.g. Barnyard, cannot turn it off). BetterPerformance does some of the same things, so turn it off if Barnyard allows it; you do not need it with this mod. The mod logs which other plugins are loaded but never changes them. The separate optional benchmark tool can also be used; it is not required or bundled.
 
 Only the explicitly supported game build applies optimizations. Other game builds keep all features bypassed. The mod writes only its own BepInEx config and log messages. It does not change game files, the registry, physics timing, hitboxes, projectile rotation, or gameplay layers.
+
+## Benchmarks
+
+All numbers: local free play, FPS cap lifted, only this mod plus the measurement plugin loaded, Ryzen 5 5600X + RTX 4060.
+
+Heavy competitive map (UCH level code **800M-VDMW**, 2,848 blocks), 30 s per run, two runs each:
+
+| | Avg FPS | Frames slower than 8.33 ms (per 30 s) | Worst frame |
+|---|---|---|---|
+| Vanilla | 67.6 | ~1,770 | ~41 ms |
+| 2.2.0 level (2.3 features off) | 206.4 | ~1,795 | ~22 ms |
+| **2.3.0** | **271.9** | **~347** | **~16 ms** |
+
+"Eternity" (level code **8VKK-7G4K**, 4,000 blocks, 1,700 barbed-wire pieces, 760 block animations), 20 s per run, fresh game start per run:
+
+| | Avg FPS | Median frame | 99th percentile frame |
+|---|---|---|---|
+| 2.4.2 | 115.5 | 9.6 ms | 18.1 ms |
+| **2.5.1** | **175.6** | **3.9 ms** | **12.3 ms** |
+
+Level loading on a 10,000-block level (2.4.2): worst frame 21 s -> 4.6 s, portal to ready 25 s -> 9.2 s. Full 2.3.0 test log: [docs/UCH-Game-Performance-Test-Log.xlsx](docs/UCH-Game-Performance-Test-Log.xlsx). Real party rounds and online play are not benchmarked.
 
 ## What it does and config options
 
@@ -72,27 +93,6 @@ Every row is a separate switch unless a value is shown. Section/key spelling mat
 | Experimental / QuickSaverRepair | Off; unavailable | Remains vanilla; blanket layer/body changes would change gameplay state. |
 
 No global logger suppression, event pruning, built-in profiler, hardware-specific worker tuning, or blanket debris lifecycle replacement is included. Experimental graphics/physics options require a visual and gameplay check on your maps. The screen-effect options retain the camera render-texture path; they replace the material blit rather than disabling the effect component.
-
-## Benchmarks
-
-All numbers: local free play, FPS cap lifted, only this mod plus the measurement plugin loaded, Ryzen 5 5600X + RTX 4060.
-
-Heavy competitive map (UCH level code **800M-VDMW**, 2,848 blocks), 30 s per run, two runs each:
-
-| | Avg FPS | Frames slower than 8.33 ms (per 30 s) | Worst frame |
-|---|---|---|---|
-| Vanilla | 67.6 | ~1,770 | ~41 ms |
-| 2.2.0 level (2.3 features off) | 206.4 | ~1,795 | ~22 ms |
-| **2.3.0** | **271.9** | **~347** | **~16 ms** |
-
-"Eternity" (level code **8VKK-7G4K**, 4,000 blocks, 1,700 barbed-wire pieces, 760 block animations), 20 s per run, fresh game start per run:
-
-| | Avg FPS | Median frame | 99th percentile frame |
-|---|---|---|---|
-| 2.4.2 | 115.5 | 9.6 ms | 18.1 ms |
-| **2.5.1** | **175.6** | **3.9 ms** | **12.3 ms** |
-
-Level loading on a 10,000-block level (2.4.2): worst frame 21 s -> 4.6 s, portal to ready 25 s -> 9.2 s. Full 2.3.0 test log: [docs/UCH-Game-Performance-Test-Log.xlsx](docs/UCH-Game-Performance-Test-Log.xlsx). Real versus rounds and online play are not benchmarked.
 
 ## Comparing results
 
