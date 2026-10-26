@@ -33,7 +33,11 @@ Heavy competitive map (UCH level code **800M-VDMW**, 2,848 blocks), 30 s per run
 |---|---|---|---|
 | 2.4.2 | 115.5 | 9.6 ms | 18.1 ms |
 | 2.5.1 | 175.6 - 181.5 | 3.6 - 3.9 ms | 12.3 - 13.0 ms |
-| **2.6.0** | **203.6** | **3.3 ms** | **11.6 ms** |
+| 2.6.0 | 203.6 | 3.3 ms | 11.6 ms |
+| 2.6.2 (same session as 2.7.0, busier machine) | 132.4 | 5.4 ms | 16.8 ms |
+| **2.7.0** | **192.3** | **3.6 ms** | **11.5 ms** |
+
+The 2.6.2 and 2.7.0 rows come from one back-to-back session with other programs running, so compare them with each other rather than with the rows above; 2.7.0 also cut the worst frame from 47 to 16 ms in that session.
 
 Level loading on a 10,000-block level (2.4.2): worst frame 21 s -> 4.6 s, portal to ready 25 s -> 9.2 s. Full 2.3.0 test log: [docs/UCH-Game-Performance-Test-Log.xlsx](docs/UCH-Game-Performance-Test-Log.xlsx). Real party rounds and online play are not benchmarked.
 

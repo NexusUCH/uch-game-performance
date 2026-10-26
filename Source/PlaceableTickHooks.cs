@@ -92,9 +92,10 @@ namespace UCHGamePerformance
         private static void AfterStart(Placeable __instance)
         {
             if (!Tick.Active) return;
+            Type type = null;
             try
             {
-                Type type = __instance.GetType();
+                type = __instance.GetType();
                 if (!__instance.enabled || Index.ContainsKey(__instance)) return;
                 if (type != typeof(Placeable) && !(Parts.Active && PartType(type))) return;
                 Index.Add(__instance, Blocks.Count);
@@ -103,28 +104,33 @@ namespace UCHGamePerformance
                 if (multi != null) { MultiIndex.Add(multi, Multi.Count); Multi.Add(multi); }
                 __instance.enabled = false;
             }
-            catch (Exception e) { Tick.Fail(e); }
+            // 2.7.1: a failure on a part type switches off only CPU/CentralPartTick.
+            catch (Exception e) { if (type != null && PartType(type)) Parts.Fail(e); else Tick.Fail(e); }
         }
 
         private static void AfterDestroy(Placeable __instance)
         {
-            int at;
-            if (Index.TryGetValue(__instance, out at))
+            try
             {
-                // Order among Placeable FixedUpdates is unspecified natively and each touches only its own state.
-                int last = Blocks.Count - 1;
-                Placeable moved = Blocks[last];
-                Blocks[at] = moved; Index[moved] = at;
-                Blocks.RemoveAt(last); Index.Remove(__instance);
+                int at;
+                if (Index.TryGetValue(__instance, out at))
+                {
+                    // Order among Placeable FixedUpdates is unspecified natively and each touches only its own state.
+                    int last = Blocks.Count - 1;
+                    Placeable moved = Blocks[last];
+                    Blocks[at] = moved; Index[moved] = at;
+                    Blocks.RemoveAt(last); Index.Remove(__instance);
+                }
+                MultipieceBlock multi = __instance as MultipieceBlock;
+                if (multi != null && MultiIndex.TryGetValue(multi, out at))
+                {
+                    int last = Multi.Count - 1;
+                    MultipieceBlock moved = Multi[last];
+                    Multi[at] = moved; MultiIndex[moved] = at;
+                    Multi.RemoveAt(last); MultiIndex.Remove(multi);
+                }
             }
-            MultipieceBlock multi = __instance as MultipieceBlock;
-            if (multi != null && MultiIndex.TryGetValue(multi, out at))
-            {
-                int last = Multi.Count - 1;
-                MultipieceBlock moved = Multi[last];
-                Multi[at] = moved; MultiIndex[moved] = at;
-                Multi.RemoveAt(last); MultiIndex.Remove(multi);
-            }
+            catch (Exception e) { Tick.Fail(e); }   // 2.7.1: never let an exception escape Placeable.OnDestroy
         }
 
         internal static void Run()
@@ -174,7 +180,8 @@ namespace UCHGamePerformance
             for (int i = 0; i < Blocks.Count; i++)
             {
                 Placeable p = Blocks[i];
-                if (p == null) { continue; }
+                if (ReferenceEquals(p, null)) continue;
+                if (p == null) { Index.Remove(p); continue; }   // 2.7.1: destroyed instance leaves no stale index entry
                 if (p.GetType() != typeof(Placeable)) { p.enabled = true; Index.Remove(p); continue; }
                 Index[p] = write; Blocks[write++] = p;
             }

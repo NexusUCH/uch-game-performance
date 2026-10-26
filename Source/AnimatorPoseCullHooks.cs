@@ -206,6 +206,13 @@ namespace UCHGamePerformance
     // ferris wheel checked every step sees positions at most one step old. Eternity census (2026-10-26): 14-40
     // projectiles in flight at 30 units/s, 60 Hz physics, at most 3 steps per frame; a 2.6.1 build that marked whole
     // cells conservatively kept 75 of 145 movers live and lost 13 FPS.
+    //
+    // 2.7.1: the segment assumes straight flight, so its radius grows by the distance an in-flight acceleration can bend
+    // the path within the horizon (0.5 * a * horizon^2). Game code review (Projectile, AttractorRepulsor, BlowerPusher,
+    // AnimalCannon): projectiles are trigger colliders and never bounce; what bends them is gravity (cannon animals, the
+    // body's own gravityScale), a black hole's AttractorRepulsor (pushAccel 300 u/s^2 within its radius 5) and the
+    // projectile blower (at most 5 u/s^2). Teleporter and screen-wrap jumps are outside any radius, as they were for the
+    // 2.6.2 circle. Hockey pucks are not projectiles (the shooter is a raycast).
     internal static class View
     {
         private const float PlayerAllowance = 4f;
@@ -221,6 +228,13 @@ namespace UCHGamePerformance
         private static int count, slots, lastPoints, slices = 1;
         private static float maxRadius, lastHorizon;
         private static long rejects, refreshes, nearHits, nearMisses;
+        // 2.7.1: in-flight acceleration allowance (see the class comment). Black holes are found by scanning
+        // Placeable.AllPlaceables for Blackhole blocks whenever the placeable count changes or every 600 frames; they
+        // never move during play.
+        private const float BlowerAccel = 5f;
+        private static readonly List<AttractorRepulsor> Attractors = new List<AttractorRepulsor>();
+        private static int attractorCount = -1, attractorFrame = -100000;
+        private static float maxAllowance;
 
         // Set by the animator view loop: how many frames pass between two checks of the same animator.
         internal static int Slices { set { slices = value < 1 ? 1 : value; } }
@@ -259,7 +273,12 @@ namespace UCHGamePerformance
                     Mark(p.x, p.y, p.x, p.y, PlayerRadius);
                 }
             List<Projectile> projectiles = Projectile.AllProjectiles;
-            if (projectiles != null)
+            if (projectiles != null && projectiles.Count != 0)
+            {
+                ScanAttractors();
+                float halfHorizon2 = 0.5f * horizon * horizon;
+                float gravity = Physics2D.gravity.magnitude;
+                maxAllowance = 0f;
                 for (int i = 0; i < projectiles.Count; i++)
                 {
                     Projectile projectile = projectiles[i];
@@ -269,14 +288,48 @@ namespace UCHGamePerformance
                     // No body (never seen): a generous circle instead of a segment.
                     if (body == null) { Mark(p.x, p.y, p.x, p.y, 1f + 60f * horizon); continue; }
                     Vector2 v = body.velocity;
-                    Mark(p.x, p.y, p.x + v.x * horizon, p.y + v.y * horizon, 1f);
+                    // 2.7.1: everything that can bend this projectile's path before the next check.
+                    float accel = BlowerAccel + gravity * Math.Abs(body.gravityScale);
+                    float travel = v.magnitude * horizon;
+                    for (int k = 0; k < Attractors.Count; k++)
+                    {
+                        AttractorRepulsor attractor = Attractors[k];
+                        if (attractor == null || !attractor.isActiveAndEnabled) continue;
+                        Vector3 c = attractor.transform.position;
+                        float ddx = c.x - p.x, ddy = c.y - p.y, within = attractor.radius + travel + 1f;
+                        if (ddx * ddx + ddy * ddy <= within * within) accel += Math.Abs(attractor.pushAccel);
+                    }
+                    float allowance = accel * halfHorizon2;
+                    if (allowance > maxAllowance) maxAllowance = allowance;
+                    Mark(p.x, p.y, p.x + v.x * horizon, p.y + v.y * horizon, 1f + allowance);
                 }
+            }
             lastPoints = count;
+        }
+
+        // 2.7.1: the black holes of the current level (AttractorRepulsor sits on a child of the Blackhole block).
+        private static void ScanAttractors()
+        {
+            List<Placeable> all = Placeable.AllPlaceables;
+            int n = all == null ? 0 : all.Count;
+            int now = Time.frameCount;
+            if (n == attractorCount && now - attractorFrame < 600) return;
+            attractorCount = n; attractorFrame = now;
+            Attractors.Clear();
+            for (int i = 0; i < n; i++)
+            {
+                Placeable placeable = all[i];
+                if (placeable == null || !(placeable is Blackhole)) continue;
+                AttractorRepulsor[] found = placeable.GetComponentsInChildren<AttractorRepulsor>(true);
+                for (int k = 0; k < found.Length; k++) Attractors.Add(found[k]);
+            }
         }
 
         // A segment (ax,ay)-(bx,by) with radius r, filed in every cell its bounding box touches.
         private static void Mark(float x1, float y1, float x2, float y2, float radius)
         {
+            // 2.7.1: an absurd velocity (NaN/infinite end point) files the projectile as a point at its position.
+            if (float.IsNaN(x2) || float.IsInfinity(x2) || float.IsNaN(y2) || float.IsInfinity(y2)) { x2 = x1; y2 = y1; }
             if (count == ax.Length)
             {
                 int size = ax.Length * 2;
@@ -285,10 +338,12 @@ namespace UCHGamePerformance
             int index = count++;
             ax[index] = x1; ay[index] = y1; bx[index] = x2; by[index] = y2; pr[index] = radius;
             if (radius > maxRadius) maxRadius = radius;
+            int sx = Mathf.FloorToInt(x1 / Cell), sy = Mathf.FloorToInt(y1 / Cell);
             int cx0 = Mathf.FloorToInt(Math.Min(x1, x2) / Cell), cx1 = Mathf.FloorToInt(Math.Max(x1, x2) / Cell);
             int cy0 = Mathf.FloorToInt(Math.Min(y1, y2) / Cell), cy1 = Mathf.FloorToInt(Math.Max(y1, y2) / Cell);
-            if (cx1 - cx0 > 8) cx1 = cx0 + 8;   // NaN or absurd velocity: never loop far
-            if (cy1 - cy0 > 8) cy1 = cy0 + 8;
+            // Never loop far (2.7.1: clamp around the current position's cell, whichever way the segment points).
+            if (cx0 < sx - 8) cx0 = sx - 8; if (cx1 > sx + 8) cx1 = sx + 8;
+            if (cy0 < sy - 8) cy0 = sy - 8; if (cy1 > sy + 8) cy1 = sy + 8;
             for (int cx = cx0; cx <= cx1; cx++)
                 for (int cy = cy0; cy <= cy1; cy++)
                 {
@@ -376,7 +431,7 @@ namespace UCHGamePerformance
             return "camera=" + (camera == null ? "none" : camera.name) + " valid=" + valid + " rect=" + minX.ToString("0.0") + "," + minY.ToString("0.0") +
                 ".." + maxX.ToString("0.0") + "," + maxY.ToString("0.0") + " refreshes=" + refreshes + " rejects=" + rejects +
                 " points=" + lastPoints + " cells=" + Heads.Count + " slots=" + slots + " maxRadius=" + maxRadius.ToString("0.0") + " horizon=" + lastHorizon.ToString("0.000") +
-                " slices=" + slices + " nearHits=" + nearHits + " nearMisses=" + nearMisses;
+                " slices=" + slices + " attractors=" + Attractors.Count + " maxAllowance=" + maxAllowance.ToString("0.00") + " nearHits=" + nearHits + " nearMisses=" + nearMisses;
         }
     }
 }
