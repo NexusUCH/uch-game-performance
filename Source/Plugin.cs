@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace UCHGamePerformance
 {
-    [BepInPlugin(Guid, "UCH Game Performance", "2.5.1")]
+    [BepInPlugin(Guid, "UCH Game Performance", "2.6.0")]
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.nexus.uch.gameperformance";
@@ -64,7 +64,7 @@ namespace UCHGamePerformance
         {
             Feature.Log = Logger;
             started = true;
-            Logger.LogInfo("UCH Game Performance 2.5.1; vanilla target; all options require a restart.");
+            Logger.LogInfo("UCH Game Performance 2.6.0; vanilla target; all options require a restart.");
             // Master switch for A/B testing (UCH Perf Test can flip it by name); false leaves the game fully vanilla.
             if (!Config.Bind("General", "Enabled", true, "Master switch. false = this mod applies nothing and the game runs vanilla. Restart the game after changing this option.").Value)
             {
@@ -99,6 +99,7 @@ namespace UCHGamePerformance
             // 2.3.0: both need a persistent coroutine host (this plugin object survives scene loads).
             ActDispatchHooks.Host = this;
             StaticBlockHooks.Host = this;
+            AnimatorPoseCullHooks.Host = this;
             Enable(ActDispatchHooks.Dispatch, true, "Run all block act loops from one central runner in the vanilla order and phase; each block's first step stays native.", ActDispatchHooks.Install);
             Enable(PlaceableTickHooks.Tick, true, "Run plain blocks' per-step bookkeeping from one early loop instead of one native FixedUpdate call per block; attached blocks still run the original method.", PlaceableTickHooks.Install);
             Enable(AudioHooks.Emitters, true, "Skip a sound emitter's per-frame position update while its transform and sound environment are unchanged; it would send nothing in that case.", AudioHooks.Install);
@@ -118,6 +119,9 @@ namespace UCHGamePerformance
             Enable(StaticBlockHooks.Wide, true, "Also give barbed wire, ice and glue pieces (and their invisible parent blocks) a Static body during the play phase when they pass the same audit as plain blocks: no moving or non-plain ancestor, no motion of their own, only known motionless components; their indicator animations may sit only on collider-free child objects. About 1,900 more static bodies on a full barbed-wire level.", StaticBlockHooks.InstallWide);
             Enable(AnimatorCullHooks.Cull, true, "Purely visual block animations (glue attach indicators, boxing-glove buttons, spring and black-hole sprites, hamster wheels, the goal flag) are not evaluated while none of their sprites is on screen (Unity's own animator culling). Only animators with no collider, no physics body and no animation event below them, from a fixed list of reviewed animations; everything that drives gameplay (shooters, gloves, doors, crumble blocks, saws, spikes, teleporters) stays untouched.", AnimatorCullHooks.Install);
             Enable(IndicatorHooks.Idle, true, "A barbed-wire, ice or glue block's attachment-indicator script keeps running every frame after the block is placed, although from then on it returns immediately forever. It is switched off at that point (about 900 per-frame calls on a full barbed-wire level).", IndicatorHooks.Install);
+            Enable(AnimatorPoseCullHooks.Poses, true, "Gameplay animations whose clips only draw (arrow shooters, cannons, teleporters, beehives, blowers, fans, crumble blocks, treadmills, punching plants) skip their pose writes while the block is outside the camera view (12-unit margin); their state machines and animation events (shots, sounds, collider switches) keep running exactly as before. The gameplay camera is the one whose view contains every living player; without one nothing is skipped.", AnimatorPoseCullHooks.Install);
+            Enable(AnimatorPoseCullHooks.Movers, true, "Same for animations that move or switch a collider (boxing glove arm, saw blade, spikes, flipping block, swinging axe, lighter flame, doors): outside the view the collider keeps its last pose and snaps to the live pose when the block comes back into view. Only off-screen projectiles can notice. Needs Graphics/CullOffscreenAnimatorPoses.", AnimatorPoseCullHooks.InstallMovers);
+            Enable(FerrisWheelHooks.Far, true, "A ferris wheel outside the camera view (12-unit margin plus its radius) skips its per-step rotation and keeps the skipped time; its first step back in view applies that time at once, so it stands exactly where it would have been. Players are always in view; only off-screen projectiles can notice a platform that has not caught up yet.", FerrisWheelHooks.Install);
             Enable(Logs, true, "Silence only three known pool/placement hot-path messages at their call sites.", CpuHooks.InstallLogs);
             Enable(Paths, true, "Cache parsed hierarchy paths within each load pass. Resolve roots live to honor hierarchy mutations.", LoadingHooks.InstallPaths);
             Enable(PlacedSet, true, "Mirror placed-block membership with a hash set while the original ordered list remains authoritative.", LoadingHooks.InstallPlacedSet);
