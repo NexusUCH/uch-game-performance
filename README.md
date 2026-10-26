@@ -6,7 +6,7 @@ It replaces the older UCH Game Performance 1.x, BetterPerformance and LevelLoadi
 
 ## What to expect
 
-Measured on "Eternity" (level code **8VKK-7G4K**: about 4,000 blocks, 2,400 of them active, 1,700 barbed-wire pieces, 20-40 arrows in the air at any time), one of the heaviest community levels. Local free play, FPS cap lifted, fresh game start per run, 20 s recording each. Full details and the exact setup are in the [Eternity test report](docs/eternity-test-report-2.7.2.md) (measured on 2.7.2; later versions only fix bugs).
+Measured on "Eternity" (level code **8VKK-7G4K**: about 4,000 blocks, 2,400 of them active, 1,700 wires, 20-40 arrows in the air at any time), one of the heaviest community levels. Local free play, FPS cap lifted, fresh game start per run, 20 s recording each. Full details and the exact setup are in the [Eternity test report](docs/eternity-test-report-2.7.2.md) (measured on 2.7.2; later versions only fix bugs).
 
 | | Average FPS | Typical frame | Worst 1 % of frames | Frames slower than 8.33 ms (per 20 s) |
 |---|---|---|---|---|
