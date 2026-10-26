@@ -54,6 +54,16 @@ namespace UCHGamePerformance
         private static readonly Dictionary<string, float> MoverReach = new Dictionary<string, float> {
             { "BoxingGlove-Punch", 10f }, { "SwingingAxe", 9f }, { "LinearSaw", 6f }, { "Oneway Door-OnewayDoor1x4.000", 6f },
             { "autoDoor1x4", 5f }, { "Lighter", 5f }, { "PressureTriggerAnimator", 4f }, { "FlippingBlock", 4f } };
+        // 2.7.4 (owner-found bug): a mover whose moving collider can set off ANOTHER BLOCK must play its whole animation
+        // wherever it is, not only while a player or projectile is near. Layer facts measured live 2026-10-26: the block
+        // receivers that react to any collider (glove projectile triggers, cannon projectile detector, crumble and door
+        // projectile triggers, glove blockers) sit on layer 29 ProjectileTrigger, which collides only with layer 22
+        // Particles (projectiles) and the unnamed layers 3/6/7. Among mover colliders only the boxing glove's fist
+        // "ProjectileBox" is on 22; saw blades, spikes, doors, axes and lighters are on 9/18, which never reach 29. So a
+        // glove punching off screen (hit by a far arrow, or by another glove) must move its fist, or the chain of gloves,
+        // doors and crumble blocks it would have set off in vanilla stops. Such a "chain mover" is checked every frame,
+        // not per slice: while its animator is not in the idle state it recorded when it was adopted, it stays live.
+        private static readonly HashSet<string> ChainMovers = new HashSet<string> { "BoxingGlove-Punch" };
 
         private sealed class Entry
         {
@@ -61,10 +71,13 @@ namespace UCHGamePerformance
             internal Transform Transform;
             internal AnimatorCullingMode Original;
             internal float Reach;
-            internal bool Mover, Culled;
+            internal bool Mover, Culled, Chain;
+            internal int IdleHash;
         }
 
         private static readonly List<Entry> Tracked = new List<Entry>();
+        private static readonly List<Entry> Chains = new List<Entry>();
+        private static long chainWakes;
         private static readonly List<Animator> Scratch = new List<Animator>();
         private static int cursor, culledNow;
         private static long seen, adopted, culls, unculls;
@@ -111,6 +124,7 @@ namespace UCHGamePerformance
                     entry.Original = animator.cullingMode;
                     entry.Mover = mover;
                     if (!mover || !MoverReach.TryGetValue(controller.name, out entry.Reach)) entry.Reach = Margin;
+                    if (mover && ChainMovers.Contains(controller.name)) { entry.Chain = true; Chains.Add(entry); }
                     Tracked.Add(entry);
                     adopted++;
                 }
@@ -131,10 +145,34 @@ namespace UCHGamePerformance
             }
         }
 
+        // 2.7.4: a chain mover is "active" while its animator is not in the idle state it was adopted in (or in a
+        // transition). The idle hash is taken from the first initialized look at the animator: blocks awake idle.
+        private static bool ChainActive(Entry entry)
+        {
+            Animator animator = entry.Animator;
+            if (!animator.isInitialized) return false;
+            AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
+            if (entry.IdleHash == 0) { entry.IdleHash = state.shortNameHash; return false; }
+            return state.shortNameHash != entry.IdleHash || animator.IsInTransition(0);
+        }
+
         private static void Step()
         {
             View.Slices = (Tracked.Count + PerFrame - 1) / PerFrame;
             bool valid = View.Refresh();
+            // 2.7.4: every frame, a culled chain mover that started its animation goes live at once (before Unity
+            // evaluates the animators for this frame), whatever the view and whoever is near.
+            for (int i = Chains.Count - 1; i >= 0; i--)
+            {
+                Entry chain = Chains[i];
+                if (chain.Animator == null) { Chains[i] = Chains[Chains.Count - 1]; Chains.RemoveAt(Chains.Count - 1); continue; }
+                if (chain.Culled && ChainActive(chain))
+                {
+                    chain.Animator.cullingMode = chain.Original;
+                    chain.Culled = false;
+                    unculls++; culledNow--; chainWakes++;
+                }
+            }
             // With a valid view, a slice of the list per frame; without one, every animator goes back to its own mode now.
             int budget = valid ? Math.Min(PerFrame, Tracked.Count) : Tracked.Count;
             for (int k = 0; k < budget && Tracked.Count != 0; k++)
@@ -151,9 +189,10 @@ namespace UCHGamePerformance
                     continue;
                 }
                 // Event-only clips write no collider pose: the camera rectangle alone decides. A mover's collider can be
-                // met by a player or a projectile, so it also stays live while one is within its reach (2.6.2).
+                // met by a player or a projectile, so it also stays live while one is within its reach (2.6.2); a chain
+                // mover also while its animation is running (2.7.4).
                 Vector3 position = entry.Transform.position;
-                bool cull = valid && !View.Contains(position, Margin) && !(entry.Mover && View.NearInterest(position, entry.Reach));
+                bool cull = valid && !View.Contains(position, Margin) && !(entry.Mover && View.NearInterest(position, entry.Reach)) && !(entry.Chain && ChainActive(entry));
                 if (cull != entry.Culled)
                 {
                     entry.Animator.cullingMode = cull ? AnimatorCullingMode.CullUpdateTransforms : entry.Original;
@@ -176,6 +215,8 @@ namespace UCHGamePerformance
                 entry.Culled = false;
             }
             Tracked.RemoveRange(write, Tracked.Count - write);
+            Chains.Clear();
+            for (int i = 0; i < Tracked.Count; i++) if (Tracked[i].Chain) Chains.Add(Tracked[i]);
             cursor = 0;
         }
 
@@ -183,7 +224,7 @@ namespace UCHGamePerformance
         {
             int movers = 0;
             for (int i = 0; i < Tracked.Count; i++) if (Tracked[i].Mover) movers++;
-            return "tracked=" + Tracked.Count + " movers=" + movers + " culledNow=" + culledNow + " adopted=" + adopted + " seen=" + seen +
+            return "tracked=" + Tracked.Count + " movers=" + movers + " chains=" + Chains.Count + " chainWakes=" + chainWakes + " culledNow=" + culledNow + " adopted=" + adopted + " seen=" + seen +
                 " culls=" + culls + " unculls=" + unculls + " view[" + View.Status() + "]";
         }
     }

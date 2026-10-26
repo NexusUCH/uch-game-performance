@@ -1,5 +1,5 @@
 ﻿using System.Reflection;
 [assembly: AssemblyTitle("UCH Game Performance")]
 [assembly: AssemblyDescription("Vanilla UCH performance optimizations by Nexus.")]
-[assembly: AssemblyVersion("2.7.3.0")]
-[assembly: AssemblyFileVersion("2.7.3.0")]
+[assembly: AssemblyVersion("2.7.4.0")]
+[assembly: AssemblyFileVersion("2.7.4.0")]

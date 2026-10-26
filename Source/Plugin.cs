@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace UCHGamePerformance
 {
-    [BepInPlugin(Guid, "UCH Game Performance", "2.7.3")]
+    [BepInPlugin(Guid, "UCH Game Performance", "2.7.4")]
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.nexus.uch.gameperformance";
@@ -64,7 +64,7 @@ namespace UCHGamePerformance
         {
             Feature.Log = Logger;
             started = true;
-            Logger.LogInfo("UCH Game Performance 2.7.3; vanilla target; all options require a restart.");
+            Logger.LogInfo("UCH Game Performance 2.7.4; vanilla target; all options require a restart.");
             // Master switch for A/B testing (UCH Perf Test can flip it by name); false leaves the game fully vanilla.
             if (!Config.Bind("General", "Enabled", true, "Master switch. false = this mod applies nothing and the game runs vanilla. Restart the game after changing this option.").Value)
             {
@@ -122,7 +122,7 @@ namespace UCHGamePerformance
             Enable(AnimatorCullHooks.Cull, true, "Purely visual block animations (glue attach indicators, boxing-glove buttons, spring and black-hole sprites, hamster wheels, the goal flag) are not evaluated while none of their sprites is on screen (Unity's own animator culling). Only animators with no collider, no physics body and no animation event below them, from a fixed list of reviewed animations; everything that drives gameplay (shooters, gloves, doors, crumble blocks, saws, spikes, teleporters) stays untouched.", AnimatorCullHooks.Install);
             Enable(IndicatorHooks.Idle, true, "A barbed-wire, ice or glue block's attachment-indicator script keeps running every frame after the block is placed, although from then on it returns immediately forever. It is switched off at that point (about 900 per-frame calls on a full barbed-wire level).", IndicatorHooks.Install);
             Enable(AnimatorPoseCullHooks.Poses, true, "Gameplay animations whose clips only draw (arrow shooters, cannons, teleporters, beehives, blowers, fans, crumble blocks, treadmills, punching plants) skip their pose writes while the block is outside the camera view (12-unit margin); their state machines and animation events (shots, sounds, collider switches) keep running exactly as before. The gameplay camera is the one whose view contains every living player; without one nothing is skipped.", AnimatorPoseCullHooks.Install);
-            Enable(AnimatorPoseCullHooks.Movers, true, "Same for animations that move or switch a collider (boxing glove arm, saw blade, spikes, flipping block, swinging axe, lighter flame, doors): outside the view the collider keeps its last pose and snaps to the live pose when the block comes back into view. A mover stays live while any player or any projectile is within its collider's reach, so nothing can meet a frozen collider. Needs Graphics/CullOffscreenAnimatorPoses.", AnimatorPoseCullHooks.InstallMovers);
+            Enable(AnimatorPoseCullHooks.Movers, true, "Same for animations that move or switch a collider (boxing glove arm, saw blade, spikes, flipping block, swinging axe, lighter flame, doors): outside the view the collider keeps its last pose and snaps to the live pose when the block comes back into view. A mover stays live while any player or any projectile is within its collider's reach, so nothing can meet a frozen collider; a boxing glove, whose fist can set off other blocks, is also never frozen while its punch animation runs, so chains of gloves, doors and crumble blocks work off screen. Needs Graphics/CullOffscreenAnimatorPoses.", AnimatorPoseCullHooks.InstallMovers);
             Enable(UncapHooks.Uncap, false, "Off (default) leaves the game's FPS cap and VSync alone. On lifts the cap to 1000 FPS and turns VSync off once the game has started, the setting the mod's own benchmarks use. Engine/TargetFrameRate wins when it is set.", UncapHooks.Install);
             Enable(FerrisWheelHooks.Far, true, "A ferris wheel outside the camera view (12-unit margin plus its radius) skips its per-step rotation and keeps the skipped time; its first step back in view applies that time at once, so it stands exactly where it would have been. The wheel keeps turning while any player or any projectile is within its reach, so nothing can meet a platform that has not caught up yet.", FerrisWheelHooks.Install);
             Enable(Logs, true, "Silence only three known pool/placement hot-path messages at their call sites.", CpuHooks.InstallLogs);
