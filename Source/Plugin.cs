@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace UCHGamePerformance
 {
-    [BepInPlugin(Guid, "UCH Game Performance", "2.5.0")]
+    [BepInPlugin(Guid, "UCH Game Performance", "2.5.1")]
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.nexus.uch.gameperformance";
@@ -64,7 +64,7 @@ namespace UCHGamePerformance
         {
             Feature.Log = Logger;
             started = true;
-            Logger.LogInfo("UCH Game Performance 2.5.0; vanilla target; all options require a restart.");
+            Logger.LogInfo("UCH Game Performance 2.5.1; vanilla target; all options require a restart.");
             // Master switch for A/B testing (UCH Perf Test can flip it by name); false leaves the game fully vanilla.
             if (!Config.Bind("General", "Enabled", true, "Master switch. false = this mod applies nothing and the game runs vanilla. Restart the game after changing this option.").Value)
             {

@@ -43,7 +43,7 @@ namespace UCHGamePerformance
         private static readonly List<Component> Scratch = new List<Component>();
         private static readonly List<Transform> Stack = new List<Transform>();
         private static Listener listener;
-        private static int generation, watchdogReverts;
+        private static int generation, watchdogReverts, flagsCleared;
 
         private struct Converted
         {
@@ -51,6 +51,10 @@ namespace UCHGamePerformance
             internal Transform Transform;
             internal RigidbodyType2D Original;
             internal bool Parented;
+            // 2.5.0: pose at conversion. Unity flags a transform (and its children) as changed when a parent's body
+            // switches type in a later slice, although nothing moved; the watchdog now reverts only a real move.
+            internal Vector3 Position;
+            internal Quaternion Rotation;
         }
 
         // Cached structural audit of one block: verdict plus the parent it was audited under.
@@ -246,6 +250,7 @@ namespace UCHGamePerformance
                 Converted c;
                 c.Body = body; c.Transform = body.transform; c.Original = body.bodyType; c.Parented = c.Transform.parent != null;
                 c.Body.bodyType = RigidbodyType2D.Static;
+                c.Position = c.Transform.position; c.Rotation = c.Transform.rotation;
                 c.Transform.hasChanged = false;
                 Bodies.Add(c);
             }
@@ -324,7 +329,9 @@ namespace UCHGamePerformance
         // Safety net: a converted block whose transform changes (anything the audit could not see) gets its
         // original body type back. Attached blocks (which move with a parent) are checked every step; root blocks
         // can only move through a direct transform write, and every audited writer is hooked, so they are
-        // re-checked every 4th step to keep this net cheap.
+        // re-checked every 4th step to keep this net cheap. 2.5.0: a flagged transform whose pose is still exactly
+        // the pose it had at conversion was not moved (Unity also flags children when a parent body changes type,
+        // and 2.5.0 converts parents and attached pieces in slices); its flag is cleared and it stays static.
         private static IEnumerator Watchdog()
         {
             int step = 0;
@@ -342,9 +349,13 @@ namespace UCHGamePerformance
                         if (c.Body == null) continue;
                         if ((roots || c.Parented) && c.Transform.hasChanged)
                         {
-                            c.Body.bodyType = c.Original;
-                            if (watchdogReverts++ == 0) Feature.Log.LogWarning(Static.Name + ": watchdog reverted a block that moved (" + c.Body.name + ").");
-                            continue;
+                            if (c.Transform.position == c.Position && c.Transform.rotation == c.Rotation) { c.Transform.hasChanged = false; flagsCleared++; }
+                            else
+                            {
+                                c.Body.bodyType = c.Original;
+                                if (watchdogReverts++ == 0) Feature.Log.LogWarning(Static.Name + ": watchdog reverted a block that moved (" + c.Body.name + ").");
+                                continue;
+                            }
                         }
                         Bodies[write++] = c;
                     }
@@ -357,7 +368,7 @@ namespace UCHGamePerformance
         internal static string Status()
         {
             return "static=" + Bodies.Count + " watchdogReverts=" + watchdogReverts + " conversions=" + conversions + " cacheHits=" + cacheHits
-                + " cacheAudits=" + cacheAudits + " cacheMismatches=" + cacheMismatches + " cached=" + audits.Count + " slices=" + slices + " wide=" + Wide.Active;
+                + " cacheAudits=" + cacheAudits + " cacheMismatches=" + cacheMismatches + " cached=" + audits.Count + " slices=" + slices + " wide=" + Wide.Active + " flagsCleared=" + flagsCleared;
         }
     }
 }
