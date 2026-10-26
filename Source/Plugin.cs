@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace UCHGamePerformance
 {
-    [BepInPlugin(Guid, "UCH Game Performance", "2.3.0")]
+    [BepInPlugin(Guid, "UCH Game Performance", "2.4.0")]
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.nexus.uch.gameperformance";
@@ -64,7 +64,7 @@ namespace UCHGamePerformance
         {
             Feature.Log = Logger;
             started = true;
-            Logger.LogInfo("UCH Game Performance 2.3.0; vanilla target; all options require a restart.");
+            Logger.LogInfo("UCH Game Performance 2.4.0; vanilla target; all options require a restart.");
             // Master switch for A/B testing (UCH Perf Test can flip it by name); false leaves the game fully vanilla.
             if (!Config.Bind("General", "Enabled", true, "Master switch. false = this mod applies nothing and the game runs vanilla. Restart the game after changing this option.").Value)
             {
@@ -102,6 +102,15 @@ namespace UCHGamePerformance
             Enable(ActDispatchHooks.Dispatch, true, "Run all block act loops from one central runner in the vanilla order and phase; each block's first step stays native.", ActDispatchHooks.Install);
             Enable(PlaceableTickHooks.Tick, true, "Run plain blocks' per-step bookkeeping from one early loop instead of one native FixedUpdate call per block; attached blocks still run the original method.", PlaceableTickHooks.Install);
             Enable(AudioHooks.Emitters, true, "Skip a sound emitter's per-frame position update while its transform and sound environment are unchanged; it would send nothing in that case.", AudioHooks.Install);
+            Enable(SceneSearchHooks.Search, true, "Answer repeated screen-wrap lookups by projectiles/hockey shooters within one frame from a single scene search; removes a multi-second freeze after loading full levels.", SceneSearchHooks.Install);
+            Enable(SnapshotHooks.Skip, true, "In local games (no online lobby, no remote player or connection) pass the level XML on uncompressed instead of LZMA-compressing it for nobody when a level starts.", SnapshotHooks.Install);
+            GcHooks.Host = this;
+            Enable(RoundHooks.Lookup, true, "On every phase start, refresh character sizes from the game's own character list instead of searching the whole scene (~13 ms on a full level).", RoundHooks.Install);
+            Enable(PlacementLogHooks.Quiet, true, "Remove the per-block \"Placing ...\" log line (thousands per level start); other logging stays.", PlacementLogHooks.Install);
+            Enable(FullnessUiHooks.Defer, true, "While a level's blocks are being restored, hold back the free-play fullness meter's per-block text updates and recount it once afterwards.", FullnessUiHooks.Install);
+            Enable(GcHooks.Pause, true, "Pause automatic garbage collection for the level-start frame only; it resumes after the next frame.", GcHooks.Install);
+            Enable(ListenerHooks.Membership, true, "Blocks and projectiles check event-listener membership with a hash set mirroring each listener list instead of scanning the whole list per registration; list contents and order stay vanilla.", ListenerHooks.Install);
+            Enable(LogFileHooks.Buffer, true, "The game appends each log line to its own log file by opening and closing the file per line (~0.6 ms each, thousands per level start). Same text and order, written in batches every 250 ms and on quit.", LogFileHooks.Install);
             Enable(StaticBlockHooks.Static, true, "During the play phase give motionless plain blocks a Static body (skipped by the physics step); reverted before anything can move them.", StaticBlockHooks.Install);
             Enable(Logs, true, "Silence only three known pool/placement hot-path messages at their call sites.", CpuHooks.InstallLogs);
             Enable(Paths, true, "Cache parsed hierarchy paths within each load pass. Resolve roots live to honor hierarchy mutations.", LoadingHooks.InstallPaths);
