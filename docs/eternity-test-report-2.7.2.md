@@ -22,6 +22,18 @@ Date: 2026-10-26. Author: nexus. Map: "Eternity", UCH level code **8VKK-7G4K** (
 
 Roughly twice the average frame rate, a median frame 3.6x shorter, and a third to a quarter of the slow frames. The two mod runs differ by about 5 %, which is the session noise on this machine; treat the gain as "about 2x", not as an exact factor.
 
+## Level load time
+
+Same setup, separate pass: fresh game start per arm, the level downloaded by code into a treehouse portal, a 60 s recording running across the load, the stopwatch from portal entry to "level ready" (the placement cursor exists and the level scene is active). Order: 2.7.2, vanilla, 2.7.2.
+
+| Arm | Portal entry to level ready | Longest frame during the load | Frames longer than 250 ms |
+|---|---|---|---|
+| Vanilla | 29.8 s | 25.95 s (one freeze) | 1 |
+| **2.7.2 run 1** | **5.9 s** | **2.12 s** | **1** |
+| **2.7.2 run 2** | **5.7 s** | **1.96 s** | **1** |
+
+Vanilla freezes for about 26 s while the level starts; with the mod the same start is a single frame of about 2 s. The main contributor is Loading/ScreenWrapLookupCache: Eternity's projectile and hockey-shooter blocks asked the scene for the screen-wrap object 846 times during this one start, and the mod answered all of them from one scene search (`searches=1 answeredFromCache=846`). Loading/NoGCDuringLevelStart, Loading/DeferFullnessMeter, Loading/ListenerMembershipSet and Loading/BeehiveEarlyBeeDisable remove the rest of the per-block startup cost. These are the 2.3.1 to 2.4.2 options; 2.7.x does not change them, and the numbers match the 30.3 s vs 6.5 s measured on 2.5.1.
+
 ## What the mod was doing during the runs (its own status counters)
 
 - Static bodies: 3,435 of the level's blocks ran with a Static physics body during the play phase (288 of them active-block roots: shooters, gloves, spikes, cannons, teleporters and so on). The pose watchdog handed 377 bodies back to the physics step because they really moved (wire pieces on moving blocks); that is the safety net working, not a change in behaviour.
