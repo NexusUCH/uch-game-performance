@@ -35,7 +35,7 @@ Heavy competitive map (UCH level code **800M-VDMW**, 2,848 blocks), 30 s per run
 | **2.7.2** run 1 | **214.0** | **3.4 ms** | **10.2 ms** | **19.8 ms** | **446** |
 | **2.7.2** run 2 | **224.2** | **3.3 ms** | **9.7 ms** | **20.3 ms** | **315** |
 
-Roughly twice the frame rate and a median frame 3.6x shorter on this map. Earlier versions on the same map (other sessions, the game's own 300 FPS cap, so only the version-to-version steps are comparable): 2.4.2 115.5, 2.5.1 175.6-181.5, 2.6.0 203.6, 2.6.2 132.4 -> 2.7.0 192.3 (one busier back-to-back session).
+Full Eternity test report (setup, counters, behaviour checks): [docs/eternity-test-report-2.7.2.md](docs/eternity-test-report-2.7.2.md). Roughly twice the frame rate and a median frame 3.6x shorter on this map. Earlier versions on the same map (other sessions, the game's own 300 FPS cap, so only the version-to-version steps are comparable): 2.4.2 115.5, 2.5.1 175.6-181.5, 2.6.0 203.6, 2.6.2 132.4 -> 2.7.0 192.3 (one busier back-to-back session).
 
 Level loading on a 10,000-block level (2.4.2): worst frame 21 s -> 4.6 s, portal to ready 25 s -> 9.2 s. Full 2.3.0 test log: [docs/UCH-Game-Performance-Test-Log.xlsx](docs/UCH-Game-Performance-Test-Log.xlsx). Real party rounds and online play are not benchmarked.
 
