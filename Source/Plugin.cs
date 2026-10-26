@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace UCHGamePerformance
 {
-    [BepInPlugin(Guid, "UCH Game Performance", "2.6.2")]
+    [BepInPlugin(Guid, "UCH Game Performance", "2.7.0")]
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.nexus.uch.gameperformance";
@@ -64,7 +64,7 @@ namespace UCHGamePerformance
         {
             Feature.Log = Logger;
             started = true;
-            Logger.LogInfo("UCH Game Performance 2.6.2; vanilla target; all options require a restart.");
+            Logger.LogInfo("UCH Game Performance 2.7.0; vanilla target; all options require a restart.");
             // Master switch for A/B testing (UCH Perf Test can flip it by name); false leaves the game fully vanilla.
             if (!Config.Bind("General", "Enabled", true, "Master switch. false = this mod applies nothing and the game runs vanilla. Restart the game after changing this option.").Value)
             {
@@ -102,6 +102,7 @@ namespace UCHGamePerformance
             AnimatorPoseCullHooks.Host = this;
             Enable(ActDispatchHooks.Dispatch, true, "Run all block act loops from one central runner in the vanilla order and phase; each block's first step stays native.", ActDispatchHooks.Install);
             Enable(PlaceableTickHooks.Tick, true, "Run plain blocks' per-step bookkeeping from one early loop instead of one native FixedUpdate call per block; attached blocks still run the original method.", PlaceableTickHooks.Install);
+            Enable(PlaceableTickHooks.Parts, true, "Same for barbed-wire, ice and glue pieces and their invisible parent blocks (about 1,900 native per-step calls on a full wire level): these types inherit the empty block action and declare no per-frame logic of their own except the parent's per-frame part check, which the same loop now runs once per frame. Needs CPU/CentralPlaceableTick.", PlaceableTickHooks.InstallParts);
             Enable(AudioHooks.Emitters, true, "Skip a sound emitter's per-frame position update while its transform and sound environment are unchanged; it would send nothing in that case.", AudioHooks.Install);
             Enable(SceneSearchHooks.Search, true, "Answer repeated screen-wrap lookups by projectiles/hockey shooters within one frame from a single scene search; removes a multi-second freeze after loading full levels.", SceneSearchHooks.Install);
             Enable(SnapshotHooks.Skip, true, "In local games (no online lobby, no remote player or connection) pass the level XML on uncompressed instead of LZMA-compressing it for nobody when a level starts.", SnapshotHooks.Install);
@@ -117,6 +118,7 @@ namespace UCHGamePerformance
             Enable(StaticBlockHooks.AuditCache, true, "Remember each plain block's static-body audit (parent chain and components) between play phases instead of re-auditing every block at every play start (~30 ms on a full level). The cheap state checks still run live; the audit is repeated in full every 16th play start and any difference turns this option off.", StaticBlockHooks.InstallAuditCache);
             Enable(StaticBlockHooks.Sliced, true, "Switch the static bodies on over a few frames (300 per frame) at play start instead of all in one frame. Switching them back stays immediate.", StaticBlockHooks.InstallSliced);
             Enable(StaticBlockHooks.Wide, true, "Also give barbed wire, ice and glue pieces (and their invisible parent blocks) a Static body during the play phase when they pass the same audit as plain blocks: no moving or non-plain ancestor, no motion of their own, only known motionless components; their indicator animations may sit only on collider-free child objects. About 1,900 more static bodies on a full barbed-wire level.", StaticBlockHooks.InstallWide);
+            Enable(StaticBlockHooks.Roots, true, "Also give the root body of active blocks that never move themselves a Static body during the play phase: arrow shooters, boxing gloves, pressure spikes, animal cannons, teleporters, springs, black holes, beehives, blowers, auto doors, lighters, swinging axes, saws, flipping blocks, punching plants, fire hydrants, hockey shooters and goal blocks (their animations move child colliders, which Unity re-syncs the same way under either body type). Blocks attached to such a root qualify too. Same revert paths and watchdog. Needs Physics/StaticBlocks.", StaticBlockHooks.InstallRoots);
             Enable(AnimatorCullHooks.Cull, true, "Purely visual block animations (glue attach indicators, boxing-glove buttons, spring and black-hole sprites, hamster wheels, the goal flag) are not evaluated while none of their sprites is on screen (Unity's own animator culling). Only animators with no collider, no physics body and no animation event below them, from a fixed list of reviewed animations; everything that drives gameplay (shooters, gloves, doors, crumble blocks, saws, spikes, teleporters) stays untouched.", AnimatorCullHooks.Install);
             Enable(IndicatorHooks.Idle, true, "A barbed-wire, ice or glue block's attachment-indicator script keeps running every frame after the block is placed, although from then on it returns immediately forever. It is switched off at that point (about 900 per-frame calls on a full barbed-wire level).", IndicatorHooks.Install);
             Enable(AnimatorPoseCullHooks.Poses, true, "Gameplay animations whose clips only draw (arrow shooters, cannons, teleporters, beehives, blowers, fans, crumble blocks, treadmills, punching plants) skip their pose writes while the block is outside the camera view (12-unit margin); their state machines and animation events (shots, sounds, collider switches) keep running exactly as before. The gameplay camera is the one whose view contains every living player; without one nothing is skipped.", AnimatorPoseCullHooks.Install);

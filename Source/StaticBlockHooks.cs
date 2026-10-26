@@ -28,6 +28,21 @@ namespace UCHGamePerformance
         internal static readonly Feature AuditCache = new Feature("Physics/StaticBlocksAuditCache");
         internal static readonly Feature Sliced = new Feature("Physics/StaticBlocksSliced");
         internal static readonly Feature Wide = new Feature("Physics/StaticMultipieceBlocks");
+        // 2.7.0: Physics/StaticActiveBlocks. Active blocks whose own script never moves their root body (reviewed in the
+        // game code 2026-10-26: no MovePosition/MoveRotation/velocity/isKinematic/bodyType write on the root; the only
+        // ActiveBlocks that move their root by code are CrumblingBlock and UnLockBox, movers carry base-motion modifiers
+        // and are rejected by IsMobileBlock). Their animations move child colliders, which are fixtures of the root body
+        // and are re-synced by Unity exactly as under a Kinematic body; contacts with the player (Dynamic) and with
+        // projectiles are unchanged in Box2D for a non-moving body of either type. The component audit is skipped for
+        // these roots (their scripts, animators and sound emitters are the reason they were rejected before); the
+        // ancestor rule, the live state checks, every revert path and the watchdog apply unchanged. Blocks attached to
+        // such a root (wire on a glove block) now pass the ancestor rule too. Exact types only.
+        internal static readonly Feature Roots = new Feature("Physics/StaticActiveBlocks");
+        private static readonly HashSet<Type> RootTypes = new HashSet<Type> {
+            typeof(ProjectileLauncher), typeof(PunchingBlock), typeof(PressureTriggerSpikes), typeof(AnimalCannon), typeof(Teleporter),
+            typeof(Spring), typeof(Blackhole), typeof(Beehive), typeof(UpBlower), typeof(AutoDoor), typeof(Lighter), typeof(SwingingAxe),
+            typeof(LinearSaw), typeof(FlippingBlock), typeof(PunchingPlant), typeof(FireHydrant), typeof(HockeyShooter), typeof(GoalBlock) };
+        private static int rootBodies;
         private static readonly HashSet<string> WideBlocks = new HashSet<string> { "MultipieceBlock", "MultipiecePart", "Ice", "HoneyPiece" };
         private static readonly HashSet<string> WideVisual = new HashSet<string> { "Animator", "AttachmentIndicator", "CanAttachIndicator", "HoneySticker" };
         internal static MonoBehaviour Host;
@@ -129,6 +144,13 @@ namespace UCHGamePerformance
             Wide.Restore = delegate { RevertAll(false); audits.Clear(); previous = null; fullAudit = false; };
         }
 
+        // 2.7.0: rides on Physics/StaticBlocks and patches nothing itself; same revert on failure as the wider rule.
+        internal static void InstallRoots()
+        {
+            if (!Static.Active) throw new NotSupportedException("Physics/StaticBlocks is off");
+            Roots.Restore = delegate { RevertAll(false); audits.Clear(); previous = null; fullAudit = false; };
+        }
+
         internal static void SceneUnloaded() { audits.Clear(); previous = null; }
 
         private static void Subscribe(bool adding)
@@ -224,10 +246,11 @@ namespace UCHGamePerformance
             fullAudit = AuditCache.Active && (++conversions % FullAuditEvery) == 0;
             if (fullAudit) { previous = audits; audits = new Dictionary<Placeable, Verdict>(new ByReference()); }
             int mismatches = 0;
+            rootBodies = 0;
             for (int i = 0; i < all.Count; i++)
             {
                 Rigidbody2D body = Eligible(all[i], ref mismatches);
-                if (body != null) chosen.Add(body);
+                if (body != null) { chosen.Add(body); if (Root(all[i])) rootBodies++; }
             }
             if (fullAudit)
             {
@@ -263,9 +286,14 @@ namespace UCHGamePerformance
             return Wide.Active && (type == typeof(MultipieceBlock) || type == typeof(MultipiecePart) || type == typeof(Ice) || type == typeof(HoneyPiece));
         }
 
+        private static bool Root(Placeable p)
+        {
+            return Roots.Active && RootTypes.Contains(p.GetType());
+        }
+
         private static Rigidbody2D Eligible(Placeable p, ref int mismatches)
         {
-            if (p == null || !Plain(p) || !p.Placed || p.PickedUp || p.MarkedForDestruction || p.Disabled || !p.gameObject.activeInHierarchy) return null;
+            if (p == null || !(Plain(p) || Root(p)) || !p.Placed || p.PickedUp || p.MarkedForDestruction || p.Disabled || !p.gameObject.activeInHierarchy) return null;
             Rigidbody2D body = p.GetComponent<Rigidbody2D>();
             if (body == null || body.bodyType != RigidbodyType2D.Kinematic || !body.simulated) return null;
             if (!AuditCache.Active) return Structure(p, body) ? body : null;
@@ -286,14 +314,16 @@ namespace UCHGamePerformance
             // Wider types only: a block that moves itself (base motion, rotation, treadmill) is never static.
             Type own = p.GetType();
             if (own != typeof(Placeable) && own != typeof(DecorativeItemBlock) && p.IsMobileBlock) return false;
-            // Ancestors: only other plain blocks or bare transforms (nothing that could move this block).
+            // Ancestors: only other plain blocks, non-moving active roots or bare transforms (nothing that could move this block).
             for (Transform t = p.transform.parent; t != null; t = t.parent)
             {
                 Placeable owner = t.GetComponent<Placeable>();
-                if (owner != null) { if (!Plain(owner) || owner.IsMobileBlock) return false; continue; }
+                if (owner != null) { if (!(Plain(owner) || Root(owner)) || owner.IsMobileBlock) return false; continue; }
                 t.GetComponents(Scratch);
                 if (Scratch.Count != 1) return false;
             }
+            // 2.7.0: a reviewed active root keeps its scripts, animators and emitters; only its body matters here.
+            if (Root(p)) return true;
             // The block and its non-block descendants may only carry audited, motionless components.
             Stack.Clear(); Stack.Add(p.transform);
             while (Stack.Count != 0)
@@ -368,7 +398,8 @@ namespace UCHGamePerformance
         internal static string Status()
         {
             return "static=" + Bodies.Count + " watchdogReverts=" + watchdogReverts + " conversions=" + conversions + " cacheHits=" + cacheHits
-                + " cacheAudits=" + cacheAudits + " cacheMismatches=" + cacheMismatches + " cached=" + audits.Count + " slices=" + slices + " wide=" + Wide.Active + " flagsCleared=" + flagsCleared;
+                + " cacheAudits=" + cacheAudits + " cacheMismatches=" + cacheMismatches + " cached=" + audits.Count + " slices=" + slices + " wide=" + Wide.Active
+                + " roots=" + Roots.Active + " rootBodies=" + rootBodies + " flagsCleared=" + flagsCleared;
         }
     }
 }

@@ -195,15 +195,17 @@ namespace UCHGamePerformance
     // local players, with "all cam" everyone. Remote players outside the rectangle are no longer a reason to stop
     // culling (2.6.2); they count as interest points instead.
     //
-    // Interest points (2.6.2): every active player and every live projectile (Projectile.AllProjectiles: arrows, pucks,
-    // cannon animals, all with a trigger collider and a body) is stored in a 12-unit cell grid (per-cell linked lists in
-    // flat arrays, no allocation after warm-up). Each point carries its own radius: a player 4 units, a projectile
-    // 1 unit plus the distance it can travel before the next check (its current speed times the horizon: the physics
-    // steps of one frame per view-loop slice, plus one). NearInterest(p, reach) is an exact circle test, point by point,
-    // over the surrounding cells: true when some point lies within reach + its radius of p. Rebuilt whenever the frame
-    // or the physics step changes (Time.fixedTime), so a ferris wheel checked every step sees positions at most one
-    // step old. Eternity census (2026-10-26): 14-40 projectiles in flight at 30 units/s, 60 Hz physics, at most 3 steps
-    // per frame; a 2.6.1 build that marked whole cells conservatively kept 75 of 145 movers live and lost 13 FPS.
+    // Interest points (2.6.2, sharpened 2.7.0): every active player and every live projectile (Projectile.AllProjectiles:
+    // arrows, pucks, cannon animals, all with a trigger collider and a body) is stored in a 12-unit cell grid (per-cell
+    // slot chains in flat arrays, no allocation after warm-up). A player is a point with radius 4. A projectile is the
+    // segment from its position to where its current velocity carries it within the horizon (the physics steps of one
+    // frame per view-loop slice, plus one), with radius 1: a 30 u/s arrow covers a 2-unit segment instead of the 2.6.2
+    // circle of radius 3, about four times less area, and an arrow flying away from a block never wakes it.
+    // NearInterest(p, reach) is an exact point-to-segment test over the surrounding cells: true when some segment lies
+    // within reach + its radius of p. Rebuilt whenever the frame or the physics step changes (Time.fixedTime), so a
+    // ferris wheel checked every step sees positions at most one step old. Eternity census (2026-10-26): 14-40
+    // projectiles in flight at 30 units/s, 60 Hz physics, at most 3 steps per frame; a 2.6.1 build that marked whole
+    // cells conservatively kept 75 of 145 movers live and lost 13 FPS.
     internal static class View
     {
         private const float PlayerAllowance = 4f;
@@ -213,10 +215,10 @@ namespace UCHGamePerformance
         private static float fixedStamp = -1f;
         private static bool valid;
         private static float minX, maxX, minY, maxY;
-        private static readonly Dictionary<long, int> Heads = new Dictionary<long, int>();
-        private static float[] px = new float[256], py = new float[256], pr = new float[256];
-        private static int[] link = new int[256];
-        private static int count, lastPoints, slices = 1;
+        private static readonly Dictionary<long, int> Heads = new Dictionary<long, int>();   // cell -> first slot
+        private static float[] ax = new float[256], ay = new float[256], bx = new float[256], by = new float[256], pr = new float[256];
+        private static int[] slotPoint = new int[1024], slotNext = new int[1024];
+        private static int count, slots, lastPoints, slices = 1;
         private static float maxRadius, lastHorizon;
         private static long rejects, refreshes, nearHits, nearMisses;
 
@@ -240,7 +242,7 @@ namespace UCHGamePerformance
         private static void MarkInterest()
         {
             Heads.Clear();
-            count = 0;
+            count = 0; slots = 0;
             maxRadius = 0f;
             float fixedDelta = Time.fixedDeltaTime;
             int stepsPerFrame = fixedDelta > 0f ? (int)Math.Ceiling(Time.maximumDeltaTime / fixedDelta) : 1;
@@ -252,7 +254,9 @@ namespace UCHGamePerformance
                 for (int i = 0; i < characters.Count; i++)
                 {
                     Character character = characters[i];
-                    if (character != null && character.gameObject.activeInHierarchy) Mark(character.transform.position, PlayerRadius);
+                    if (character == null || !character.gameObject.activeInHierarchy) continue;
+                    Vector3 p = character.transform.position;
+                    Mark(p.x, p.y, p.x, p.y, PlayerRadius);
                 }
             List<Projectile> projectiles = Projectile.AllProjectiles;
             if (projectiles != null)
@@ -260,32 +264,47 @@ namespace UCHGamePerformance
                 {
                     Projectile projectile = projectiles[i];
                     if (projectile == null) continue;
+                    Vector3 p = projectile.transform.position;
                     Rigidbody2D body = projectile.GetComponent<Rigidbody2D>();
-                    float speed = body == null ? 60f : body.velocity.magnitude;
-                    Mark(projectile.transform.position, 1f + speed * horizon);
+                    // No body (never seen): a generous circle instead of a segment.
+                    if (body == null) { Mark(p.x, p.y, p.x, p.y, 1f + 60f * horizon); continue; }
+                    Vector2 v = body.velocity;
+                    Mark(p.x, p.y, p.x + v.x * horizon, p.y + v.y * horizon, 1f);
                 }
             lastPoints = count;
         }
 
-        private static void Mark(Vector3 p, float radius)
+        // A segment (ax,ay)-(bx,by) with radius r, filed in every cell its bounding box touches.
+        private static void Mark(float x1, float y1, float x2, float y2, float radius)
         {
-            if (count == px.Length)
+            if (count == ax.Length)
             {
-                int size = px.Length * 2;
-                Array.Resize(ref px, size); Array.Resize(ref py, size); Array.Resize(ref pr, size); Array.Resize(ref link, size);
+                int size = ax.Length * 2;
+                Array.Resize(ref ax, size); Array.Resize(ref ay, size); Array.Resize(ref bx, size); Array.Resize(ref by, size); Array.Resize(ref pr, size);
             }
-            px[count] = p.x; py[count] = p.y; pr[count] = radius;
+            int index = count++;
+            ax[index] = x1; ay[index] = y1; bx[index] = x2; by[index] = y2; pr[index] = radius;
             if (radius > maxRadius) maxRadius = radius;
-            long key = Key(Mathf.FloorToInt(p.x / Cell), Mathf.FloorToInt(p.y / Cell));
-            int head;
-            link[count] = Heads.TryGetValue(key, out head) ? head : -1;
-            Heads[key] = count;
-            count++;
+            int cx0 = Mathf.FloorToInt(Math.Min(x1, x2) / Cell), cx1 = Mathf.FloorToInt(Math.Max(x1, x2) / Cell);
+            int cy0 = Mathf.FloorToInt(Math.Min(y1, y2) / Cell), cy1 = Mathf.FloorToInt(Math.Max(y1, y2) / Cell);
+            if (cx1 - cx0 > 8) cx1 = cx0 + 8;   // NaN or absurd velocity: never loop far
+            if (cy1 - cy0 > 8) cy1 = cy0 + 8;
+            for (int cx = cx0; cx <= cx1; cx++)
+                for (int cy = cy0; cy <= cy1; cy++)
+                {
+                    if (slots == slotPoint.Length) { Array.Resize(ref slotPoint, slots * 2); Array.Resize(ref slotNext, slots * 2); }
+                    long key = Key(cx, cy);
+                    int head;
+                    slotNext[slots] = Heads.TryGetValue(key, out head) ? head : -1;
+                    slotPoint[slots] = index;
+                    Heads[key] = slots;
+                    slots++;
+                }
         }
 
         private static long Key(int cx, int cy) { return ((long)cx << 32) | (uint)cy; }
 
-        // True when a player or a projectile lies within reach + its own radius of p (exact circle test).
+        // True when a player or a projectile (its travel segment) lies within reach + its own radius of p.
         internal static bool NearInterest(Vector3 p, float reach)
         {
             if (count != 0)
@@ -295,17 +314,28 @@ namespace UCHGamePerformance
                 for (int dx = -n; dx <= n; dx++)
                     for (int dy = -n; dy <= n; dy++)
                     {
-                        int i;
-                        if (!Heads.TryGetValue(Key(cx + dx, cy + dy), out i)) continue;
-                        for (; i >= 0; i = link[i])
+                        int s;
+                        if (!Heads.TryGetValue(Key(cx + dx, cy + dy), out s)) continue;
+                        for (; s >= 0; s = slotNext[s])
                         {
-                            float ddx = px[i] - p.x, ddy = py[i] - p.y, r = reach + pr[i];
-                            if (ddx * ddx + ddy * ddy <= r * r) { nearHits++; return true; }
+                            int i = slotPoint[s];
+                            float r = reach + pr[i];
+                            if (SegmentDistanceSquared(ax[i], ay[i], bx[i], by[i], p.x, p.y) <= r * r) { nearHits++; return true; }
                         }
                     }
             }
             nearMisses++;
             return false;
+        }
+
+        private static float SegmentDistanceSquared(float x1, float y1, float x2, float y2, float px, float py)
+        {
+            float dx = x2 - x1, dy = y2 - y1;
+            float len = dx * dx + dy * dy;
+            float t = len > 1e-8f ? ((px - x1) * dx + (py - y1) * dy) / len : 0f;
+            if (t < 0f) t = 0f; else if (t > 1f) t = 1f;
+            float ex = x1 + t * dx - px, ey = y1 + t * dy - py;
+            return ex * ex + ey * ey;
         }
 
         private static bool Rect(Camera c)
@@ -345,7 +375,7 @@ namespace UCHGamePerformance
             Camera camera = ZoomCamera.CurrentZoomCamera;
             return "camera=" + (camera == null ? "none" : camera.name) + " valid=" + valid + " rect=" + minX.ToString("0.0") + "," + minY.ToString("0.0") +
                 ".." + maxX.ToString("0.0") + "," + maxY.ToString("0.0") + " refreshes=" + refreshes + " rejects=" + rejects +
-                " points=" + lastPoints + " cells=" + Heads.Count + " maxRadius=" + maxRadius.ToString("0.0") + " horizon=" + lastHorizon.ToString("0.000") +
+                " points=" + lastPoints + " cells=" + Heads.Count + " slots=" + slots + " maxRadius=" + maxRadius.ToString("0.0") + " horizon=" + lastHorizon.ToString("0.000") +
                 " slices=" + slices + " nearHits=" + nearHits + " nearMisses=" + nearMisses;
         }
     }
