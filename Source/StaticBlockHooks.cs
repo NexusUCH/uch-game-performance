@@ -16,11 +16,20 @@ namespace UCHGamePerformance
     // between play phases (Physics/StaticBlocksAuditCache; the cheap state checks still run live, the audit is
     // repeated in full every 16th play start and any difference turns the cache off), and the body switches are
     // spread over a few frames (Physics/StaticBlocksSliced, 300 per frame). Switching back stays immediate.
+    // 2.5.0: Physics/StaticMultipieceBlocks widens the rule to the exact types MultipieceBlock, MultipiecePart, Ice and
+    // HoneyPiece (barbed wire, ice, glue: ~1,900 of the 2,400 bodies still kinematic on a full wire map). They carry no
+    // motion of their own (Act is the empty base, no Update that moves anything; Ice/HoneyPiece only hand out friction
+    // and jump modifiers), their parts hang under the block they attached to, and the same ancestor/component audit
+    // applies. Their indicator animations (Animator, AttachmentIndicator, CanAttachIndicator) and glue strands
+    // (HoneySticker) are accepted only on collider-free child transforms, where they cannot move a fixture.
     internal static class StaticBlockHooks
     {
         internal static readonly Feature Static = new Feature("Physics/StaticBlocks");
         internal static readonly Feature AuditCache = new Feature("Physics/StaticBlocksAuditCache");
         internal static readonly Feature Sliced = new Feature("Physics/StaticBlocksSliced");
+        internal static readonly Feature Wide = new Feature("Physics/StaticMultipieceBlocks");
+        private static readonly HashSet<string> WideBlocks = new HashSet<string> { "MultipieceBlock", "MultipiecePart", "Ice", "HoneyPiece" };
+        private static readonly HashSet<string> WideVisual = new HashSet<string> { "Animator", "AttachmentIndicator", "CanAttachIndicator", "HoneySticker" };
         internal static MonoBehaviour Host;
         private const int SliceSize = 300;
         private const int FullAuditEvery = 16;
@@ -106,6 +115,14 @@ namespace UCHGamePerformance
         internal static void InstallSliced()
         {
             if (!Static.Active) throw new NotSupportedException("Physics/StaticBlocks is off");
+        }
+
+        // 2.5.0: rides on Physics/StaticBlocks and patches nothing itself. If it switches itself off, every body
+        // converted under the wider rule goes back first and the cached verdicts (computed under that rule) are dropped.
+        internal static void InstallWide()
+        {
+            if (!Static.Active) throw new NotSupportedException("Physics/StaticBlocks is off");
+            Wide.Restore = delegate { RevertAll(false); audits.Clear(); previous = null; fullAudit = false; };
         }
 
         internal static void SceneUnloaded() { audits.Clear(); previous = null; }
@@ -237,7 +254,8 @@ namespace UCHGamePerformance
         private static bool Plain(Placeable p)
         {
             Type type = p.GetType();
-            return type == typeof(Placeable) || type == typeof(DecorativeItemBlock);
+            if (type == typeof(Placeable) || type == typeof(DecorativeItemBlock)) return true;
+            return Wide.Active && (type == typeof(MultipieceBlock) || type == typeof(MultipiecePart) || type == typeof(Ice) || type == typeof(HoneyPiece));
         }
 
         private static Rigidbody2D Eligible(Placeable p, ref int mismatches)
@@ -257,9 +275,12 @@ namespace UCHGamePerformance
             return fresh.Ok ? body : null;
         }
 
-        // Structural audit (unchanged from 2.3.0): ancestors and the block's non-block descendants.
+        // Structural audit (2.3.0 rule; 2.5.0 adds the wider type set): ancestors and the block's non-block descendants.
         private static bool Structure(Placeable p, Rigidbody2D body)
         {
+            // Wider types only: a block that moves itself (base motion, rotation, treadmill) is never static.
+            Type own = p.GetType();
+            if (own != typeof(Placeable) && own != typeof(DecorativeItemBlock) && p.IsMobileBlock) return false;
             // Ancestors: only other plain blocks or bare transforms (nothing that could move this block).
             for (Transform t = p.transform.parent; t != null; t = t.parent)
             {
@@ -274,12 +295,20 @@ namespace UCHGamePerformance
             {
                 Transform t = Stack[Stack.Count - 1]; Stack.RemoveAt(Stack.Count - 1);
                 t.GetComponents(Scratch);
+                bool root = ReferenceEquals(t, p.transform), collider = false;
+                for (int i = 0; i < Scratch.Count; i++) if (Scratch[i] is Collider2D) collider = true;
                 for (int i = 0; i < Scratch.Count; i++)
                 {
                     Component c = Scratch[i];
                     if (c == null) return false;
                     if (ReferenceEquals(c, body)) continue;
-                    if (!Allowed.Contains(c.GetType().Name)) return false;
+                    string name = c.GetType().Name;
+                    if (!Allowed.Contains(name))
+                    {
+                        // 2.5.0: the wider block scripts themselves, and their visual-only helpers on collider-free children.
+                        if (!Wide.Active) return false;
+                        if (!WideBlocks.Contains(name) && (root || collider || !WideVisual.Contains(name))) return false;
+                    }
                     CheckColliding check = c as CheckColliding;
                     if (check != null && check.dontTurnOffOnPlay) return false;
                 }
@@ -328,7 +357,7 @@ namespace UCHGamePerformance
         internal static string Status()
         {
             return "static=" + Bodies.Count + " watchdogReverts=" + watchdogReverts + " conversions=" + conversions + " cacheHits=" + cacheHits
-                + " cacheAudits=" + cacheAudits + " cacheMismatches=" + cacheMismatches + " cached=" + audits.Count + " slices=" + slices;
+                + " cacheAudits=" + cacheAudits + " cacheMismatches=" + cacheMismatches + " cached=" + audits.Count + " slices=" + slices + " wide=" + Wide.Active;
         }
     }
 }

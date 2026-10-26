@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace UCHGamePerformance
 {
-    [BepInPlugin(Guid, "UCH Game Performance", "2.4.2")]
+    [BepInPlugin(Guid, "UCH Game Performance", "2.5.0")]
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.nexus.uch.gameperformance";
@@ -64,7 +64,7 @@ namespace UCHGamePerformance
         {
             Feature.Log = Logger;
             started = true;
-            Logger.LogInfo("UCH Game Performance 2.4.2; vanilla target; all options require a restart.");
+            Logger.LogInfo("UCH Game Performance 2.5.0; vanilla target; all options require a restart.");
             // Master switch for A/B testing (UCH Perf Test can flip it by name); false leaves the game fully vanilla.
             if (!Config.Bind("General", "Enabled", true, "Master switch. false = this mod applies nothing and the game runs vanilla. Restart the game after changing this option.").Value)
             {
@@ -115,6 +115,9 @@ namespace UCHGamePerformance
             Enable(StaticBlockHooks.Static, true, "During the play phase give motionless plain blocks a Static body (skipped by the physics step); reverted before anything can move them.", StaticBlockHooks.Install);
             Enable(StaticBlockHooks.AuditCache, true, "Remember each plain block's static-body audit (parent chain and components) between play phases instead of re-auditing every block at every play start (~30 ms on a full level). The cheap state checks still run live; the audit is repeated in full every 16th play start and any difference turns this option off.", StaticBlockHooks.InstallAuditCache);
             Enable(StaticBlockHooks.Sliced, true, "Switch the static bodies on over a few frames (300 per frame) at play start instead of all in one frame. Switching them back stays immediate.", StaticBlockHooks.InstallSliced);
+            Enable(StaticBlockHooks.Wide, true, "Also give barbed wire, ice and glue pieces (and their invisible parent blocks) a Static body during the play phase when they pass the same audit as plain blocks: no moving or non-plain ancestor, no motion of their own, only known motionless components; their indicator animations may sit only on collider-free child objects. About 1,900 more static bodies on a full barbed-wire level.", StaticBlockHooks.InstallWide);
+            Enable(AnimatorCullHooks.Cull, true, "Purely visual block animations (glue attach indicators, boxing-glove buttons, spring and black-hole sprites, hamster wheels, the goal flag) are not evaluated while none of their sprites is on screen (Unity's own animator culling). Only animators with no collider, no physics body and no animation event below them, from a fixed list of reviewed animations; everything that drives gameplay (shooters, gloves, doors, crumble blocks, saws, spikes, teleporters) stays untouched.", AnimatorCullHooks.Install);
+            Enable(IndicatorHooks.Idle, true, "A barbed-wire, ice or glue block's attachment-indicator script keeps running every frame after the block is placed, although from then on it returns immediately forever. It is switched off at that point (about 900 per-frame calls on a full barbed-wire level).", IndicatorHooks.Install);
             Enable(Logs, true, "Silence only three known pool/placement hot-path messages at their call sites.", CpuHooks.InstallLogs);
             Enable(Paths, true, "Cache parsed hierarchy paths within each load pass. Resolve roots live to honor hierarchy mutations.", LoadingHooks.InstallPaths);
             Enable(PlacedSet, true, "Mirror placed-block membership with a hash set while the original ordered list remains authoritative.", LoadingHooks.InstallPlacedSet);
