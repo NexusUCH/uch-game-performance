@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using GameEvent;
 using UnityEngine;
 
@@ -11,10 +12,18 @@ namespace UCHGamePerformance
     // (Dynamic), projectiles and moving blocks (Kinematic) are unchanged; only Static-vs-Static pairs vanish, and
     // eligible blocks carry no logic that senses other blocks. Every body returns to its recorded type before
     // anything can move or re-parent it, and a per-step transform watchdog reverts any body that moves anyway.
+    // 2.4.1: the per-block structural audit (parent chain + component walk, ~28 ms for 2,800 blocks) is remembered
+    // between play phases (Physics/StaticBlocksAuditCache; the cheap state checks still run live, the audit is
+    // repeated in full every 16th play start and any difference turns the cache off), and the body switches are
+    // spread over a few frames (Physics/StaticBlocksSliced, 300 per frame). Switching back stays immediate.
     internal static class StaticBlockHooks
     {
         internal static readonly Feature Static = new Feature("Physics/StaticBlocks");
+        internal static readonly Feature AuditCache = new Feature("Physics/StaticBlocksAuditCache");
+        internal static readonly Feature Sliced = new Feature("Physics/StaticBlocksSliced");
         internal static MonoBehaviour Host;
+        private const int SliceSize = 300;
+        private const int FullAuditEvery = 16;
         private static readonly WaitForFixedUpdate FixedWait = new WaitForFixedUpdate();
         private static readonly List<Converted> Bodies = new List<Converted>();
         private static readonly HashSet<string> Allowed = new HashSet<string> {
@@ -35,6 +44,24 @@ namespace UCHGamePerformance
             internal bool Parented;
         }
 
+        // Cached structural audit of one block: verdict plus the parent it was audited under.
+        private struct Verdict
+        {
+            internal bool Ok;
+            internal Transform Parent;
+        }
+
+        private sealed class ByReference : IEqualityComparer<Placeable>
+        {
+            public bool Equals(Placeable a, Placeable b) { return ReferenceEquals(a, b); }
+            public int GetHashCode(Placeable value) { return RuntimeHelpers.GetHashCode(value); }
+        }
+        private static Dictionary<Placeable, Verdict> audits = new Dictionary<Placeable, Verdict>(new ByReference());
+        private static Dictionary<Placeable, Verdict> previous;   // only during a full re-audit
+        private static bool fullAudit;
+        private static int conversions, cacheMismatches;
+        private static long cacheHits, cacheAudits, slices;
+
         private sealed class Listener : IGameEventListener
         {
             public void handleEvent(GameEvent.GameEvent e)
@@ -44,6 +71,7 @@ namespace UCHGamePerformance
                 {
                     StartPhaseEvent start = e as StartPhaseEvent;
                     if (start != null && start.Phase == GameControl.GamePhase.PLAY) return;
+                    if (e is QuicksaverLevelFinishedLoading) audits.Clear();
                     // Any other phase start, any phase end, a free-play player switching modes, or a quicksave load.
                     RevertAll(false);
                 }
@@ -54,7 +82,7 @@ namespace UCHGamePerformance
         internal static void Install()
         {
             if (Host == null) throw new InvalidOperationException("No coroutine host");
-            Static.Restore = delegate { RevertAll(false); Subscribe(false); };
+            Static.Restore = delegate { RevertAll(false); Subscribe(false); audits.Clear(); };
             Static.Patch(Reflect.DeclaredMethod(typeof(GameControl), "AfterAFixedUpdate"), typeof(StaticBlockHooks), null, "AfterAFixedUpdate", null, null);
             // Anything that can move, re-parent or pick up a block reverts every converted body first.
             Static.Patch(Reflect.DeclaredMethod(typeof(PiecePlacementCursor), "SetPiece"), typeof(StaticBlockHooks), "BeforePickup", null, null, null);
@@ -67,6 +95,20 @@ namespace UCHGamePerformance
             Subscribe(true);
             Host.StartCoroutine(Watchdog());
         }
+
+        // 2.4.1 options: both ride on Physics/StaticBlocks and patch nothing themselves.
+        internal static void InstallAuditCache()
+        {
+            if (!Static.Active) throw new NotSupportedException("Physics/StaticBlocks is off");
+            AuditCache.Restore = delegate { audits.Clear(); previous = null; fullAudit = false; };
+        }
+
+        internal static void InstallSliced()
+        {
+            if (!Static.Active) throw new NotSupportedException("Physics/StaticBlocks is off");
+        }
+
+        internal static void SceneUnloaded() { audits.Clear(); previous = null; }
 
         private static void Subscribe(bool adding)
         {
@@ -93,28 +135,58 @@ namespace UCHGamePerformance
         }
 
         // Attach/detach during play (glue links, network piece destruction): revert, then re-evaluate later.
+        // The parent chain of the blocks involved changes, so cached audits are dropped.
         private static void BeforeRelink()
         {
-            if (!Static.Active || Bodies.Count == 0) return;
-            try { RevertAll(true); }
+            if (!Static.Active) return;
+            try
+            {
+                audits.Clear();
+                if (Bodies.Count != 0) RevertAll(true);
+            }
             catch (Exception e) { Static.Fail(e); }
+        }
+
+        private static bool Stale(GameControl control, int ticket)
+        {
+            return !Static.Active || ticket != generation || control == null || control.Phase != GameControl.GamePhase.PLAY;
         }
 
         private static IEnumerator ConvertLater(GameControl control, int ticket)
         {
             yield return FixedWait;
             yield return FixedWait;
-            if (!Static.Active || ticket != generation || control == null || control.Phase != GameControl.GamePhase.PLAY) yield break;
-            try { Convert(); }
+            if (Stale(control, ticket)) yield break;
+            List<Rigidbody2D> chosen = null;
+            try { chosen = Choose(); }
             catch (Exception e) { Static.Fail(e); }
+            if (chosen == null) yield break;
+            int done = 0;
+            while (done < chosen.Count)
+            {
+                if (Stale(control, ticket)) yield break;
+                int end = Sliced.Active ? Math.Min(chosen.Count, done + SliceSize) : chosen.Count;
+                bool failed = false;
+                try { ConvertRange(chosen, done, end); }
+                catch (Exception e) { Static.Fail(e); failed = true; }
+                if (failed) yield break;
+                done = end;
+                if (done < chosen.Count) { slices++; yield return null; }
+            }
+            Feature.Log.LogInfo(Static.Name + ": " + Bodies.Count + " block bodies static for this play phase (watchdog reverts so far: " + watchdogReverts + ").");
+        }
+
+        private static void RevertBodies()
+        {
+            for (int i = 0; i < Bodies.Count; i++)
+                if (Bodies[i].Body != null && Bodies[i].Body.bodyType == RigidbodyType2D.Static) Bodies[i].Body.bodyType = Bodies[i].Original;
+            Bodies.Clear();
         }
 
         private static void RevertAll(bool reconvert)
         {
             int ticket = ++generation;
-            for (int i = 0; i < Bodies.Count; i++)
-                if (Bodies[i].Body != null && Bodies[i].Body.bodyType == RigidbodyType2D.Static) Bodies[i].Body.bodyType = Bodies[i].Original;
-            Bodies.Clear();
+            RevertBodies();
             if (reconvert)
             {
                 GameControl control = UnityEngine.Object.FindObjectOfType<GameControl>();
@@ -122,25 +194,44 @@ namespace UCHGamePerformance
             }
         }
 
-        private static void Convert()
+        // The audit pass: every placed block's cheap state checks live, the structural audit from the cache when allowed.
+        private static List<Rigidbody2D> Choose()
         {
-            if (Bodies.Count != 0) RevertAll(false);
+            if (Bodies.Count != 0) RevertBodies();
             List<Placeable> all = Placeable.AllPlaceables;
             List<Rigidbody2D> chosen = new List<Rigidbody2D>();
+            fullAudit = AuditCache.Active && (++conversions % FullAuditEvery) == 0;
+            if (fullAudit) { previous = audits; audits = new Dictionary<Placeable, Verdict>(new ByReference()); }
+            int mismatches = 0;
             for (int i = 0; i < all.Count; i++)
             {
-                Rigidbody2D body = Eligible(all[i]);
+                Rigidbody2D body = Eligible(all[i], ref mismatches);
                 if (body != null) chosen.Add(body);
             }
-            for (int i = 0; i < chosen.Count; i++)
+            if (fullAudit)
             {
+                previous = null; fullAudit = false;
+                if (mismatches != 0)
+                {
+                    cacheMismatches += mismatches;
+                    AuditCache.Fail(new InvalidOperationException(mismatches + " cached block audits differed from a fresh audit"));
+                }
+            }
+            return chosen;
+        }
+
+        private static void ConvertRange(List<Rigidbody2D> chosen, int start, int end)
+        {
+            for (int i = start; i < end; i++)
+            {
+                Rigidbody2D body = chosen[i];
+                if (body == null || body.bodyType != RigidbodyType2D.Kinematic) continue;
                 Converted c;
-                c.Body = chosen[i]; c.Transform = chosen[i].transform; c.Original = chosen[i].bodyType; c.Parented = c.Transform.parent != null;
+                c.Body = body; c.Transform = body.transform; c.Original = body.bodyType; c.Parented = c.Transform.parent != null;
                 c.Body.bodyType = RigidbodyType2D.Static;
                 c.Transform.hasChanged = false;
                 Bodies.Add(c);
             }
-            Feature.Log.LogInfo(Static.Name + ": " + Bodies.Count + " block bodies static for this play phase (watchdog reverts so far: " + watchdogReverts + ").");
         }
 
         private static bool Plain(Placeable p)
@@ -149,18 +240,33 @@ namespace UCHGamePerformance
             return type == typeof(Placeable) || type == typeof(DecorativeItemBlock);
         }
 
-        private static Rigidbody2D Eligible(Placeable p)
+        private static Rigidbody2D Eligible(Placeable p, ref int mismatches)
         {
             if (p == null || !Plain(p) || !p.Placed || p.PickedUp || p.MarkedForDestruction || p.Disabled || !p.gameObject.activeInHierarchy) return null;
             Rigidbody2D body = p.GetComponent<Rigidbody2D>();
             if (body == null || body.bodyType != RigidbodyType2D.Kinematic || !body.simulated) return null;
+            if (!AuditCache.Active) return Structure(p, body) ? body : null;
+            Transform parent = p.transform.parent;
+            Verdict cached;
+            if (!fullAudit && audits.TryGetValue(p, out cached) && ReferenceEquals(cached.Parent, parent)) { cacheHits++; return cached.Ok ? body : null; }
+            Verdict fresh;
+            fresh.Ok = Structure(p, body); fresh.Parent = parent;
+            cacheAudits++;
+            if (fullAudit && previous != null && previous.TryGetValue(p, out cached) && ReferenceEquals(cached.Parent, parent) && cached.Ok != fresh.Ok) mismatches++;
+            audits[p] = fresh;
+            return fresh.Ok ? body : null;
+        }
+
+        // Structural audit (unchanged from 2.3.0): ancestors and the block's non-block descendants.
+        private static bool Structure(Placeable p, Rigidbody2D body)
+        {
             // Ancestors: only other plain blocks or bare transforms (nothing that could move this block).
             for (Transform t = p.transform.parent; t != null; t = t.parent)
             {
                 Placeable owner = t.GetComponent<Placeable>();
-                if (owner != null) { if (!Plain(owner) || owner.IsMobileBlock) return null; continue; }
+                if (owner != null) { if (!Plain(owner) || owner.IsMobileBlock) return false; continue; }
                 t.GetComponents(Scratch);
-                if (Scratch.Count != 1) return null;
+                if (Scratch.Count != 1) return false;
             }
             // The block and its non-block descendants may only carry audited, motionless components.
             Stack.Clear(); Stack.Add(p.transform);
@@ -171,11 +277,11 @@ namespace UCHGamePerformance
                 for (int i = 0; i < Scratch.Count; i++)
                 {
                     Component c = Scratch[i];
-                    if (c == null) return null;
+                    if (c == null) return false;
                     if (ReferenceEquals(c, body)) continue;
-                    if (!Allowed.Contains(c.GetType().Name)) return null;
+                    if (!Allowed.Contains(c.GetType().Name)) return false;
                     CheckColliding check = c as CheckColliding;
-                    if (check != null && check.dontTurnOffOnPlay) return null;
+                    if (check != null && check.dontTurnOffOnPlay) return false;
                 }
                 for (int i = 0; i < t.childCount; i++)
                 {
@@ -183,7 +289,7 @@ namespace UCHGamePerformance
                     if (child.GetComponent<Placeable>() == null) Stack.Add(child);
                 }
             }
-            return body;
+            return true;
         }
 
         // Safety net: a converted block whose transform changes (anything the audit could not see) gets its
@@ -219,6 +325,10 @@ namespace UCHGamePerformance
             }
         }
 
-        internal static string Status() { return "static=" + Bodies.Count + " watchdogReverts=" + watchdogReverts; }
+        internal static string Status()
+        {
+            return "static=" + Bodies.Count + " watchdogReverts=" + watchdogReverts + " conversions=" + conversions + " cacheHits=" + cacheHits
+                + " cacheAudits=" + cacheAudits + " cacheMismatches=" + cacheMismatches + " cached=" + audits.Count + " slices=" + slices;
+        }
     }
 }

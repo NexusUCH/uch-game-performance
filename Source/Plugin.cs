@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace UCHGamePerformance
 {
-    [BepInPlugin(Guid, "UCH Game Performance", "2.4.0")]
+    [BepInPlugin(Guid, "UCH Game Performance", "2.4.1")]
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.nexus.uch.gameperformance";
@@ -64,7 +64,7 @@ namespace UCHGamePerformance
         {
             Feature.Log = Logger;
             started = true;
-            Logger.LogInfo("UCH Game Performance 2.4.0; vanilla target; all options require a restart.");
+            Logger.LogInfo("UCH Game Performance 2.4.1; vanilla target; all options require a restart.");
             // Master switch for A/B testing (UCH Perf Test can flip it by name); false leaves the game fully vanilla.
             if (!Config.Bind("General", "Enabled", true, "Master switch. false = this mod applies nothing and the game runs vanilla. Restart the game after changing this option.").Value)
             {
@@ -112,6 +112,8 @@ namespace UCHGamePerformance
             Enable(ListenerHooks.Membership, true, "Blocks and projectiles check event-listener membership with a hash set mirroring each listener list instead of scanning the whole list per registration; list contents and order stay vanilla.", ListenerHooks.Install);
             Enable(LogFileHooks.Buffer, true, "The game appends each log line to its own log file by opening and closing the file per line (~0.6 ms each, thousands per level start). Same text and order, written in batches every 250 ms and on quit.", LogFileHooks.Install);
             Enable(StaticBlockHooks.Static, true, "During the play phase give motionless plain blocks a Static body (skipped by the physics step); reverted before anything can move them.", StaticBlockHooks.Install);
+            Enable(StaticBlockHooks.AuditCache, true, "Remember each plain block's static-body audit (parent chain and components) between play phases instead of re-auditing every block at every play start (~30 ms on a full level). The cheap state checks still run live; the audit is repeated in full every 16th play start and any difference turns this option off.", StaticBlockHooks.InstallAuditCache);
+            Enable(StaticBlockHooks.Sliced, true, "Switch the static bodies on over a few frames (300 per frame) at play start instead of all in one frame. Switching them back stays immediate.", StaticBlockHooks.InstallSliced);
             Enable(Logs, true, "Silence only three known pool/placement hot-path messages at their call sites.", CpuHooks.InstallLogs);
             Enable(Paths, true, "Cache parsed hierarchy paths within each load pass. Resolve roots live to honor hierarchy mutations.", LoadingHooks.InstallPaths);
             Enable(PlacedSet, true, "Mirror placed-block membership with a hash set while the original ordered list remains authoritative.", LoadingHooks.InstallPlacedSet);
@@ -202,6 +204,8 @@ namespace UCHGamePerformance
             catch (Exception e) { ActDispatchHooks.Dispatch.Fail(e); }
             try { AudioHooks.SceneUnloaded(); }
             catch (Exception e) { AudioHooks.Emitters.Fail(e); }
+            try { StaticBlockHooks.SceneUnloaded(); }
+            catch (Exception e) { StaticBlockHooks.AuditCache.Fail(e); }
         }
 
         private void OnEnable()
