@@ -33,6 +33,13 @@ namespace UCHGamePerformance
         private static Action<MultipieceBlock> multiUpdate;
         private static GameObject host;
         private static long partTicks, multiUpdates;
+        // 2.10.0 (CPU/MultipieceUpdateGate extension): whole-loop skip, see RunUpdate.
+        private static readonly List<MultipieceBlock> Sleeping = new List<MultipieceBlock>();
+        private static Func<long> readEpoch;
+        private static bool passValid;
+        private static long passEpoch, loopSkips, fullPasses;
+        private static int registrations, passRegistrations;
+        private static GameControl.GamePhase passPhase;
 
         internal static void Install()
         {
@@ -79,6 +86,14 @@ namespace UCHGamePerformance
             DynamicMethod call = new DynamicMethod("MultipieceTickUpdate", typeof(void), new Type[] { typeof(MultipieceBlock) }, typeof(PlaceableTickHooks), true);
             ILGenerator il = call.GetILGenerator(); il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Callvirt, update); il.Emit(OpCodes.Ret);
             multiUpdate = (Action<MultipieceBlock>)call.CreateDelegate(typeof(Action<MultipieceBlock>));
+            // 2.10.0: read CpuHooks' multipiece epoch (CpuHooks itself stays byte-identical); without it the loop never skips.
+            FieldInfo epoch = Reflect.Field(typeof(CpuHooks), "multiEpoch");
+            if (epoch != null && epoch.IsStatic && epoch.FieldType == typeof(long))
+            {
+                DynamicMethod read = new DynamicMethod("MultipieceEpoch", typeof(long), Type.EmptyTypes, typeof(PlaceableTickHooks), true);
+                il = read.GetILGenerator(); il.Emit(OpCodes.Ldsfld, epoch); il.Emit(OpCodes.Ret);
+                readEpoch = (Func<long>)read.CreateDelegate(typeof(Func<long>));
+            }
             Parts.Restore = RestoreParts;
             host.AddComponent<MultipieceTicker>();
         }
@@ -101,7 +116,7 @@ namespace UCHGamePerformance
                 Index.Add(__instance, Blocks.Count);
                 Blocks.Add(__instance);
                 MultipieceBlock multi = __instance as MultipieceBlock;
-                if (multi != null) { MultiIndex.Add(multi, Multi.Count); Multi.Add(multi); }
+                if (multi != null) { MultiIndex.Add(multi, Multi.Count); Multi.Add(multi); unchecked { registrations++; } }
                 __instance.enabled = false;
             }
             // 2.7.1: a failure on a part type switches off only CPU/CentralPartTick.
@@ -152,24 +167,70 @@ namespace UCHGamePerformance
         }
 
         // MultipieceBlock.Update for every registered parent block (native Update is only sent to active objects).
+        // 2.10.0: with CPU/MultipieceUpdateGate active, every one of these calls is skipped by the gate's prefix unless
+        // the multipiece epoch moved (a part or block marked for destruction, RemovePart, a part's OnDestroy), the block
+        // is new (first call), or its Parts array, Separable flag or HoveredCursors list reference changed. Parts is only
+        // reassigned by RemovePart (epoch), Separable is never written by game code, and the HoveredCursors field is only
+        // assigned inside MultipieceBlock.Update itself (cursors only add/remove list entries, which the body never reads
+        // beyond copying the list reference). So when the epoch is unchanged since the last full pass, no block was
+        // registered since then and no block that was inactive in that pass has become active, every per-block call would
+        // be skipped and the whole loop is skipped instead. The build phase (PLACE) and any phase change always run the
+        // full loop; without a game controller nothing is skipped. The epoch is read before the loop, so an epoch tick
+        // during a pass (a block destroying itself) forces another full pass next frame, as the per-block gate would.
         internal static void RunUpdate()
         {
             if (!Parts.Active) return;
             try
             {
+                long epoch = 0;
+                GameControl.GamePhase phase = GameControl.GamePhase.NONE;
+                bool skippable = readEpoch != null && Plugin.Multipiece.Active && CurrentPhase(out phase);
+                if (skippable)
+                {
+                    epoch = readEpoch();
+                    if (passValid && epoch == passEpoch && registrations == passRegistrations && phase == passPhase &&
+                        phase != GameControl.GamePhase.PLACE && !SleeperAwake()) { loopSkips++; return; }
+                }
+                int registered = registrations;
+                Sleeping.Clear();
                 for (int i = 0; i < Multi.Count; i++)
                 {
                     MultipieceBlock m = Multi[i];
-                    if (m != null && m.gameObject.activeInHierarchy) { multiUpdate(m); multiUpdates++; }
+                    if (m == null) continue;
+                    if (m.gameObject.activeInHierarchy) { multiUpdate(m); multiUpdates++; }
+                    else Sleeping.Add(m);
                 }
+                fullPasses++;
+                passValid = skippable; passEpoch = epoch; passRegistrations = registered; passPhase = phase;
             }
-            catch (Exception e) { Parts.Fail(e); }
+            catch (Exception e) { passValid = false; Parts.Fail(e); }
+        }
+
+        private static bool CurrentPhase(out GameControl.GamePhase phase)
+        {
+            phase = GameControl.GamePhase.NONE;
+            LobbyManager lobby = LobbyManager.instance;
+            if (lobby == null) return false;
+            GameControl control = lobby.CurrentGameController;
+            if (control == null) return false;
+            phase = control.Phase;
+            return true;
+        }
+
+        private static bool SleeperAwake()
+        {
+            for (int i = 0; i < Sleeping.Count; i++)
+            {
+                MultipieceBlock m = Sleeping[i];
+                if (m != null && m.gameObject.activeInHierarchy) return true;
+            }
+            return false;
         }
 
         private static void Restore()
         {
             for (int i = 0; i < Blocks.Count; i++) if (Blocks[i] != null) Blocks[i].enabled = true;
-            Blocks.Clear(); Index.Clear(); Multi.Clear(); MultiIndex.Clear();
+            Blocks.Clear(); Index.Clear(); Multi.Clear(); MultiIndex.Clear(); Sleeping.Clear(); passValid = false;
             if (host != null) host.SetActive(false);
         }
 
@@ -186,10 +247,10 @@ namespace UCHGamePerformance
                 Index[p] = write; Blocks[write++] = p;
             }
             Blocks.RemoveRange(write, Blocks.Count - write);
-            Multi.Clear(); MultiIndex.Clear();
+            Multi.Clear(); MultiIndex.Clear(); Sleeping.Clear(); passValid = false;
         }
 
-        internal static string Status() { return "ticked=" + Blocks.Count + " multi=" + Multi.Count + " partTicks=" + partTicks + " multiUpdates=" + multiUpdates; }
+        internal static string Status() { return "ticked=" + Blocks.Count + " multi=" + Multi.Count + " partTicks=" + partTicks + " multiUpdates=" + multiUpdates + " fullPasses=" + fullPasses + " loopSkips=" + loopSkips + " sleeping=" + Sleeping.Count; }
     }
 
     [DefaultExecutionOrder(-1000)]

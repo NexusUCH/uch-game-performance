@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using UnityEngine;
 
 namespace UCHGamePerformance
@@ -65,6 +66,84 @@ namespace UCHGamePerformance
         // not per slice: while its animator is not in the idle state it recorded when it was adopted, it stays live.
         private static readonly HashSet<string> ChainMovers = new HashSet<string> { "BoxingGlove-Punch" };
 
+        // 2.8.0: Graphics/IdleAnimatorGate. Lab (Eternity, 2026-10-30): the ~227 culled gameplay animators still evaluate
+        // their state machines every frame (0.3 ms/frame + 0.37 ms per physics step). Most of them sit in an idle state
+        // whose clip has no animation event until a game script writes a parameter. While such an animator is culled by the
+        // view decision above (off screen, nothing near a mover, chain glove not punching), is in its idle state, not in a
+        // transition and has no trigger pending and every bool at its default, the component is switched off
+        // (Animator.enabled = false, with keepAnimatorStateOnDisable = true for that time so the state machine state and the
+        // parameters are kept). A prefix on every managed Animator parameter/playback wrapper switches it back on BEFORE the
+        // game's write runs, so the write lands on a running animator exactly as in vanilla; from then on the normal cull
+        // path takes over until the animator is idle and culled again at its next slice visit. Game code review
+        // (PunchingBlock, CrumblingBlock, PressureTriggerSpikes, PunchingPlant, Beehive): every animator interaction is
+        // SetTrigger / ResetTrigger / SetBool (patched) or a speed write (a stored property, harmless while off); nothing
+        // reads enabled, state info, transitions or parameters of these animators, and no other game code touches their
+        // components. Controller name -> idle clip (all clips verified event-free in the lab's clip table).
+        // 2.8.1: AnimalCannonController removed from the list. Its controller has 3 layers, so Prepare never gated it and
+        // it only logged a warning per instance (lab 2026-10-30); five block types remain.
+        // 2.9.0: multi-layer controllers and per-controller expected bools. A gate entry lists one idle clip per layer and
+        // optionally the bool values the idle state is reached with. Single-layer entries without expected bools take
+        // exactly the 2.8.1 path (IsIdle below; their expected bools are the controller defaults as before).
+        //  * AnimalCannonController (3 layers; lab-276: 25 on Eternity, all culled). Layer idle clips LaunchAnimalIdle
+        //    (0.083 s loop), AddAnimalToCannonIdle (0 s), Empty (1 s), none with an event; the only event of the controller,
+        //    SmookPoofSpawn@0.25, sits in LaunchAnimal. Game code (AnimalCannon): the animator is written only through
+        //    SetTrigger("Add"/"Launch"/"ShootProjectile") (patched) and speed (stored property); the launch itself is timed
+        //    by the script (ProcessChrsInCannon, fixedDeltaTime), not by the animation. Nothing reads its state, enabled or
+        //    parameters.
+        //  * teleporter_W83_143_0 (14 on Eternity, 11 culled). Idle clip onWait (0.5 s loop, no event), reached with On ==
+        //    true (default false), so the entry expects On = true. Game code (Teleporter): SetBool("On"), SetTrigger
+        //    Send/Receiving/Receive, ResetTrigger x3 (setReadyTrue, an event of turnOn, which has finished before onWait),
+        //    speed writes; nothing reads the animator. A teleporter is also written by its PAIRED teleporter's script
+        //    (Destination.portalAnimator.SetBool/SetTrigger("Receiving"/"Receive")): the wake prefix keys on the Animator
+        //    instance that is written, so the receiving end wakes whoever's script makes the call. The ready flag and the
+        //    teleport timing are script fields, not animator state. Character.Freeze(freezeAnimator) acts on the
+        //    character's animator, not on the portal's. Both controllers stay in EventOnly (camera rectangle only).
+        internal static readonly Feature Gate = new Feature("Graphics/IdleAnimatorGate");
+        private sealed class GateSpec
+        {
+            internal readonly string[] IdleNames;     // idle clip per layer
+            internal readonly string[] BoolNames;     // bools whose idle value differs from the controller default
+            internal readonly bool[] BoolValues;
+            internal GateSpec(string[] idleNames, string[] boolNames, bool[] boolValues) { IdleNames = idleNames; BoolNames = boolNames; BoolValues = boolValues; }
+        }
+        private static GateSpec Spec(string idle) { return new GateSpec(new string[] { idle }, new string[0], new bool[0]); }
+        private static readonly Dictionary<string, GateSpec> GateIdle = new Dictionary<string, GateSpec> {
+            { "BoxingGlove-Punch", Spec("BoxingGlove-Idle") }, { "CrumblingBlockAnimator", Spec("Hold") }, { "PressureTriggerAnimator", Spec("PressureTriggerHidden") },
+            { "PunchingPlant_Controller", Spec("PunchingPlant_Idle") }, { "BeehiveController", Spec("BeehiveHold") },
+            { "AnimalCannonController", new GateSpec(new string[] { "LaunchAnimalIdle", "AddAnimalToCannonIdle", "Empty" }, new string[0], new bool[0]) },
+            { "teleporter_W83_143_0", new GateSpec(new string[] { "onWait" }, new string[] { "On" }, new bool[] { true }) } };
+        // 2.9.0: a multi-layer controller whose idle hashes could not be learned after this many visits (summed over its
+        // instances) is never gated; its visits count in skippedNoIdle.
+        private const int MaxLearnVisits = 600;
+        // Patched managed wrappers (Unity 2021.3.45 UnityEngine.AnimationModule). Internal-call overloads have no IL body
+        // and cannot be pinned; every public managed overload funnels into them, and no game code calls them directly on a
+        // gated controller.
+        private static readonly string[] GateEntryPoints = {
+            "SetTrigger", "ResetTrigger", "SetBool", "SetInteger", "SetFloat", "Play", "PlayInFixedTime", "CrossFade", "CrossFadeInFixedTime", "Rebind" };
+
+        private sealed class GateInfo
+        {
+            internal string IdleName;
+            internal int IdleHash;           // learned state hash of the idle state (0 = not yet seen)
+            internal bool Prepared, Supported;
+            internal int[] Triggers, Bools;
+            internal bool[] BoolDefaults;    // 2.9.0: the expected value per bool (controller default unless the spec overrides it)
+            // 2.9.0 multi-layer controllers (Layers > 1): one learned idle state hash per layer.
+            internal GateSpec Spec;
+            internal int Layers;
+            internal int[] IdleHashes;
+            internal bool Learned, Abandoned;
+            internal int LearnVisits;
+        }
+
+        private static readonly Dictionary<string, GateInfo> GateInfos = new Dictionary<string, GateInfo>();
+        private static readonly Dictionary<int, Entry> GatedMap = new Dictionary<int, Entry>();
+        private static readonly List<AnimatorClipInfo> ClipScratch = new List<AnimatorClipInfo>();
+        private static int gatedNow, gatePatched;
+        private static long gates, wakes, foreignWakes, skippedNoIdle, skippedLayers;
+        private static bool gateLogPending;
+        private static float gateLogAt;
+
         private sealed class Entry
         {
             internal Animator Animator;
@@ -73,6 +152,10 @@ namespace UCHGamePerformance
             internal float Reach;
             internal bool Mover, Culled, Chain;
             internal int IdleHash;
+            // 2.8.0 idle gate
+            internal GateInfo GateInfo;
+            internal int Id;
+            internal bool Gated, KeepOriginal;
         }
 
         private static readonly List<Entry> Tracked = new List<Entry>();
@@ -125,7 +208,10 @@ namespace UCHGamePerformance
                     entry.Mover = mover;
                     if (!mover || !MoverReach.TryGetValue(controller.name, out entry.Reach)) entry.Reach = Margin;
                     if (mover && ChainMovers.Contains(controller.name)) { entry.Chain = true; Chains.Add(entry); }
+                    if (Gate.Active) entry.GateInfo = GateInfoFor(controller.name);
+                    entry.Id = animator.GetInstanceID();
                     Tracked.Add(entry);
+                    if (entry.GateInfo != null) { gateLogPending = true; gateLogAt = Time.realtimeSinceStartup + 5f; }
                     adopted++;
                 }
                 Scratch.Clear();
@@ -149,6 +235,8 @@ namespace UCHGamePerformance
         // transition). The idle hash is taken from the first initialized look at the animator: blocks awake idle.
         private static bool ChainActive(Entry entry)
         {
+            // 2.8.0: a gated glove is switched off in its idle state; any write to it switches it on first (prefix).
+            if (entry.Gated) return false;
             Animator animator = entry.Animator;
             if (!animator.isInitialized) return false;
             AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
@@ -186,6 +274,7 @@ namespace UCHGamePerformance
                     Tracked[cursor] = Tracked[last];
                     Tracked.RemoveAt(last);
                     if (entry.Culled) culledNow--;
+                    if (entry.Gated) { GatedMap.Remove(entry.Id); entry.Gated = false; gatedNow--; }
                     continue;
                 }
                 // Event-only clips write no collider pose: the camera rectangle alone decides. A mover's collider can be
@@ -199,8 +288,227 @@ namespace UCHGamePerformance
                     entry.Culled = cull;
                     if (cull) { culls++; culledNow++; } else { unculls++; culledNow--; }
                 }
+                if (entry.GateInfo != null)
+                {
+                    try { GateVisit(entry, cull); }
+                    catch (Exception e) { Gate.Fail(e); }
+                }
                 cursor++;
             }
+            if (gateLogPending && Gate.Active && Time.realtimeSinceStartup >= gateLogAt)
+            {
+                gateLogPending = false;
+                int candidates = 0;
+                for (int i = 0; i < Tracked.Count; i++) if (Tracked[i].GateInfo != null) candidates++;
+                Feature.Log.LogInfo(Gate.Name + ": " + gatedNow + " of " + candidates + " idle-gate animators switched off (view valid=" + valid + ").");
+            }
+        }
+
+        // 2.8.0: one gate decision per slice visit, after the cull decision for the same entry. A gated animator is
+        // switched back on as soon as the view no longer culls it (in view, a player or projectile near a mover, or no
+        // valid view at all: then every entry is visited in this frame and everything goes back on, as for the poses).
+        private static void GateVisit(Entry entry, bool cull)
+        {
+            Animator animator = entry.Animator;
+            if (entry.Gated)
+            {
+                if (!cull) { Ungate(entry); return; }
+                // Switched on by something other than the prefixes (no game code does this for the gated controllers):
+                // it is simply no longer ours.
+                if (animator.enabled) { Ungate(entry); foreignWakes++; }
+                return;
+            }
+            if (!cull || !Gate.Active || !animator.isActiveAndEnabled || !animator.isInitialized) return;
+            GateInfo info = entry.GateInfo;
+            if (!info.Prepared) Prepare(info, animator);
+            if (!info.Supported) return;
+            if (info.Layers == 1 ? !IsIdle(info, animator) : !IsIdleLayers(info, animator)) { skippedNoIdle++; return; }
+            entry.KeepOriginal = animator.keepAnimatorStateOnDisable;
+            animator.keepAnimatorStateOnDisable = true;
+            animator.enabled = false;
+            entry.Gated = true;
+            GatedMap[entry.Id] = entry;
+            gatedNow++; gates++;
+        }
+
+        // Parameter hashes per controller, read once from the first initialized animator. Only controllers with exactly
+        // the listed number of layers and only trigger and bool parameters are gated; anything else stays ungated.
+        // 2.9.0: the expected value of a bool is the controller default unless the gate entry names it (teleporter On).
+        private static void Prepare(GateInfo info, Animator animator)
+        {
+            info.Prepared = true;
+            info.Supported = false;
+            if (animator.layerCount != info.Layers) { skippedLayers++; Feature.Log.LogWarning(Gate.Name + ": " + info.IdleName + " controller has " + animator.layerCount + " layers (expected " + info.Layers + "); not gated."); return; }
+            AnimatorControllerParameter[] parameters = animator.parameters;
+            List<int> triggers = new List<int>(), bools = new List<int>();
+            List<bool> defaults = new List<bool>();
+            int overridden = 0;
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                AnimatorControllerParameter p = parameters[i];
+                if (p.type == AnimatorControllerParameterType.Trigger) triggers.Add(p.nameHash);
+                else if (p.type == AnimatorControllerParameterType.Bool)
+                {
+                    bool expected = p.defaultBool;
+                    for (int k = 0; k < info.Spec.BoolNames.Length; k++)
+                        if (p.name == info.Spec.BoolNames[k]) { expected = info.Spec.BoolValues[k]; overridden++; }
+                    bools.Add(p.nameHash); defaults.Add(expected);
+                }
+                else { skippedLayers++; Feature.Log.LogWarning(Gate.Name + ": " + info.IdleName + " controller has a " + p.type + " parameter; not gated."); return; }
+            }
+            if (overridden != info.Spec.BoolNames.Length) { skippedLayers++; Feature.Log.LogWarning(Gate.Name + ": " + info.IdleName + " controller lacks an expected bool parameter; not gated."); return; }
+            info.Triggers = triggers.ToArray();
+            info.Bools = bools.ToArray();
+            info.BoolDefaults = defaults.ToArray();
+            if (info.Layers > 1) info.IdleHashes = new int[info.Layers];
+            info.Supported = true;
+        }
+
+        // 2.9.0: idle for a multi-layer controller = on EVERY layer no transition and the learned idle state, plus no
+        // trigger pending and every bool at its expected value. The cheap parameter checks run first, so the learning
+        // below only ever looks at an animator with no trigger pending.
+        private static bool IsIdleLayers(GateInfo info, Animator animator)
+        {
+            if (info.Abandoned) return false;
+            int layers = info.Layers;
+            for (int l = 0; l < layers; l++) if (animator.IsInTransition(l)) return false;
+            for (int i = 0; i < info.Triggers.Length; i++) if (animator.GetBool(info.Triggers[i])) return false;
+            for (int i = 0; i < info.Bools.Length; i++) if (animator.GetBool(info.Bools[i]) != info.BoolDefaults[i]) return false;
+            if (!info.Learned && !LearnLayers(info, animator)) return false;
+            int[] hashes = info.IdleHashes;
+            for (int l = 0; l < layers; l++) if (animator.GetCurrentAnimatorStateInfo(l).shortNameHash != hashes[l]) return false;
+            return true;
+        }
+
+        // Learns every layer's idle state hash at once, from an animator with no transition and no trigger pending:
+        // a layer whose only current clip is its listed idle clip gives its current state hash. A layer that reports no
+        // clip at all (an empty state) takes the state hash it is in now, but only when every other layer is confirmed
+        // idle by its clip in the same look; that is logged once. Any layer playing another clip fails the look. After
+        // MaxLearnVisits failed looks the controller is abandoned (never gated).
+        private static bool LearnLayers(GateInfo info, Animator animator)
+        {
+            int layers = info.Layers;
+            int[] hashes = new int[layers];
+            bool[] bySight = new bool[layers];
+            bool ok = true;
+            for (int l = 0; l < layers && ok; l++)
+            {
+                ClipScratch.Clear();
+                animator.GetCurrentAnimatorClipInfo(l, ClipScratch);
+                int count = ClipScratch.Count;
+                if (count == 0) bySight[l] = true;
+                else ok = count == 1 && ClipScratch[0].clip != null && ClipScratch[0].clip.name == info.Spec.IdleNames[l];
+                ClipScratch.Clear();
+                if (ok) hashes[l] = animator.GetCurrentAnimatorStateInfo(l).shortNameHash;
+            }
+            int confirmed = 0;
+            for (int l = 0; l < layers; l++) if (!bySight[l]) confirmed++;
+            if (ok && confirmed == 0) ok = false;   // no layer confirmed idle by its clip: nothing to anchor the look on
+            if (!ok)
+            {
+                info.LearnVisits++;
+                if (info.LearnVisits >= MaxLearnVisits)
+                {
+                    info.Abandoned = true;
+                    Feature.Log.LogWarning(Gate.Name + ": " + info.IdleName + " controller: idle states not established after " + MaxLearnVisits + " looks; not gated.");
+                }
+                return false;
+            }
+            for (int l = 0; l < layers; l++)
+            {
+                info.IdleHashes[l] = hashes[l];
+                if (bySight[l]) Feature.Log.LogInfo(Gate.Name + ": " + info.IdleName + " controller layer " + l + " reports no clip in its idle state; idle = state " + hashes[l] + " seen with the other layers idle.");
+            }
+            info.Learned = true;
+            return true;
+        }
+
+        // Idle = the controller's idle state (learned once from the state whose only clip is the idle clip), not in a
+        // transition, no trigger pending, every bool at its default value (so the kept state equals what a fresh
+        // animator would start with).
+        private static bool IsIdle(GateInfo info, Animator animator)
+        {
+            if (animator.IsInTransition(0)) return false;
+            AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
+            if (info.IdleHash == 0)
+            {
+                ClipScratch.Clear();
+                animator.GetCurrentAnimatorClipInfo(0, ClipScratch);
+                bool idle = ClipScratch.Count == 1 && ClipScratch[0].clip != null && ClipScratch[0].clip.name == info.IdleName;
+                ClipScratch.Clear();
+                if (!idle) return false;
+                info.IdleHash = state.shortNameHash;
+            }
+            if (state.shortNameHash != info.IdleHash) return false;
+            for (int i = 0; i < info.Triggers.Length; i++) if (animator.GetBool(info.Triggers[i])) return false;
+            for (int i = 0; i < info.Bools.Length; i++) if (animator.GetBool(info.Bools[i]) != info.BoolDefaults[i]) return false;
+            return true;
+        }
+
+        private static void Ungate(Entry entry)
+        {
+            GatedMap.Remove(entry.Id);
+            entry.Gated = false;
+            gatedNow--;
+            Animator animator = entry.Animator;
+            if (animator == null) return;
+            animator.enabled = true;
+            animator.keepAnimatorStateOnDisable = entry.KeepOriginal;
+        }
+
+        private static GateInfo GateInfoFor(string controller)
+        {
+            GateSpec spec;
+            if (!GateIdle.TryGetValue(controller, out spec)) return null;
+            GateInfo info;
+            if (!GateInfos.TryGetValue(controller, out info))
+            {
+                info = new GateInfo(); info.IdleName = spec.IdleNames[0]; info.Spec = spec; info.Layers = spec.IdleNames.Length;
+                GateInfos[controller] = info;
+            }
+            return info;
+        }
+
+        // Rides on Graphics/CullOffscreenAnimatorPoses (its view loop and tracked list).
+        internal static void InstallGate()
+        {
+            if (!Poses.Active) throw new NotSupportedException("Graphics/CullOffscreenAnimatorPoses is off");
+            Gate.Restore = RestoreGate;
+            gatePatched = 0;
+            MethodInfo[] methods = typeof(Animator).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+            for (int i = 0; i < methods.Length; i++)
+            {
+                MethodInfo m = methods[i];
+                if (Array.IndexOf(GateEntryPoints, m.Name) < 0) continue;
+                if ((m.GetMethodImplementationFlags() & MethodImplAttributes.InternalCall) != 0) continue;
+                // Every managed wrapper must be covered, or a gated animator could miss a write: any failure aborts the option.
+                Gate.Patch(m, typeof(AnimatorPoseCullHooks), "BeforeAnimatorWrite", null, null, null);
+                gatePatched++;
+            }
+            if (gatePatched == 0) throw new InvalidOperationException("no Animator entry point patched");
+            Feature.Log.LogInfo(Gate.Name + ": animatorGuards=" + gatePatched + " managed Animator entry points patched.");
+        }
+
+        // Runs before every patched Animator call in the game (players, UI, blocks). The common case returns after one
+        // int compare, or one dictionary lookup by instance id while animators are gated.
+        private static void BeforeAnimatorWrite(Animator __instance)
+        {
+            if (gatedNow == 0) return;
+            try
+            {
+                Entry entry;
+                if ((object)__instance == null || !GatedMap.TryGetValue(__instance.GetInstanceID(), out entry)) return;
+                wakes++;
+                Ungate(entry);
+            }
+            catch (Exception e) { Gate.Fail(e); }
+        }
+
+        private static void RestoreGate()
+        {
+            for (int i = 0; i < Tracked.Count; i++) if (Tracked[i].Gated) Ungate(Tracked[i]);
+            GatedMap.Clear();
+            gatedNow = 0;
         }
 
         private static void Restore(bool moversOnly)
@@ -210,6 +518,8 @@ namespace UCHGamePerformance
             {
                 Entry entry = Tracked[i];
                 if (moversOnly && !entry.Mover) { Tracked[write++] = entry; continue; }
+                // 2.8.0: an entry that leaves the list is switched back on first.
+                if (entry.Gated) Ungate(entry);
                 if (entry.Animator != null && entry.Culled) entry.Animator.cullingMode = entry.Original;
                 if (entry.Culled) culledNow--;
                 entry.Culled = false;
@@ -226,6 +536,12 @@ namespace UCHGamePerformance
             for (int i = 0; i < Tracked.Count; i++) if (Tracked[i].Mover) movers++;
             return "tracked=" + Tracked.Count + " movers=" + movers + " chains=" + Chains.Count + " chainWakes=" + chainWakes + " culledNow=" + culledNow + " adopted=" + adopted + " seen=" + seen +
                 " culls=" + culls + " unculls=" + unculls + " view[" + View.Status() + "]";
+        }
+
+        internal static string GateStatus()
+        {
+            return "gated=" + gatedNow + " gates=" + gates + " wakes=" + wakes + " patched=" + gatePatched + " skippedNoIdle=" + skippedNoIdle +
+                " skippedLayers=" + skippedLayers + " foreignWakes=" + foreignWakes + " active=" + Gate.Active;
         }
     }
 
@@ -464,6 +780,12 @@ namespace UCHGamePerformance
         internal static bool Contains(Vector3 p, float margin)
         {
             return p.x >= minX - margin && p.x <= maxX + margin && p.y >= minY - margin && p.y <= maxY + margin;
+        }
+
+        // 2.10.0: true when the box (x0,y0)-(x1,y1) touches the view rectangle grown by margin.
+        internal static bool Overlaps(float x0, float y0, float x1, float y1, float margin)
+        {
+            return x1 >= minX - margin && x0 <= maxX + margin && y1 >= minY - margin && y0 <= maxY + margin;
         }
 
         internal static string Status()
