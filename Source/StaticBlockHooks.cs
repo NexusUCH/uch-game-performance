@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using GameEvent;
 using UnityEngine;
@@ -22,6 +23,11 @@ namespace UCHGamePerformance
     // and jump modifiers), their parts hang under the block they attached to, and the same ancestor/component audit
     // applies. Their indicator animations (Animator, AttachmentIndicator, CanAttachIndicator) and glue strands
     // (HoneySticker) are accepted only on collider-free child transforms, where they cannot move a fixture.
+    // 2.7.4: code-driven movers. A body that game code moves through Rigidbody2D.MoveRotation / MovePosition fails
+    // silently once it is Static ("Cannot use 'MoveRotation' on a static body"), its pose never changes, and the
+    // transform watchdog can never see it (seen in party mode with a rotating block). A prefix on both calls now
+    // gives such a body its recorded type back before the call runs, and remembers the block by name so later play
+    // phases never convert it again (Movers; see Key and Eligible).
     internal static class StaticBlockHooks
     {
         internal static readonly Feature Static = new Feature("Physics/StaticBlocks");
@@ -63,7 +69,11 @@ namespace UCHGamePerformance
         private static readonly List<Component> Scratch = new List<Component>();
         private static readonly List<Transform> Stack = new List<Transform>();
         private static Listener listener;
-        private static int generation, watchdogReverts, flagsCleared;
+        private static int generation, watchdogReverts, flagsCleared, moveReverts;
+
+        // 2.7.4: blocks (by name without "(Clone)") that game code moves through MoveRotation / MovePosition.
+        // They are never converted again. Kept across play phases; blocks of the same name share the verdict.
+        private static readonly HashSet<string> Movers = new HashSet<string>();
 
         private struct Converted
         {
@@ -125,8 +135,33 @@ namespace UCHGamePerformance
             Static.Patch(Reflect.DeclaredMethod(typeof(QuickSaver), "RestoreSaveables"), typeof(StaticBlockHooks), "BeforePickup", null, null, null);
             Static.Patch(Reflect.DeclaredMethod(typeof(Placeable), "AttachPiece"), typeof(StaticBlockHooks), "BeforeRelink", null, null, null);
             Static.Patch(Reflect.DeclaredMethod(typeof(Placeable), "DetachPiece"), typeof(StaticBlockHooks), "BeforeRelink", null, null, null);
+            InstallMoveGuards();
             Subscribe(true);
             Host.StartCoroutine(Watchdog());
+        }
+
+        // 2.7.4: patch every Rigidbody2D.MoveRotation / MovePosition overload. A failure here (an engine method that
+        // cannot be patched in this Unity build) must not take the whole feature down: it is logged, and the
+        // per-name Movers list (filled by hand or by an earlier run) plus the watchdog still apply.
+        private static void InstallMoveGuards()
+        {
+            int patched = 0;
+            MethodInfo[] methods = typeof(Rigidbody2D).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+            for (int i = 0; i < methods.Length; i++)
+            {
+                MethodInfo m = methods[i];
+                if (m.Name != "MoveRotation" && m.Name != "MovePosition") continue;
+                try
+                {
+                    Static.Patch(m, typeof(StaticBlockHooks), "BeforeMove", null, null, null);
+                    patched++;
+                }
+                catch (Exception e)
+                {
+                    Feature.Log.LogWarning(Static.Name + ": cannot guard " + m.Name + " (" + e.GetType().Name + "); code-driven movers are not auto-detected.");
+                }
+            }
+            if (patched == 0) Feature.Log.LogWarning(Static.Name + ": no MoveRotation/MovePosition guard installed.");
         }
 
         // 2.4.1 options: both ride on Physics/StaticBlocks and patch nothing themselves.
@@ -195,6 +230,36 @@ namespace UCHGamePerformance
             catch (Exception e) { Static.Fail(e); }
         }
 
+        // 2.7.4: prefix for Rigidbody2D.MoveRotation / MovePosition. Game code is about to move a body through the
+        // physics API; if that body is one of ours and still Static, the call would be rejected, so it gets its
+        // recorded type back first (the call then succeeds in the same step) and its block is never converted again.
+        // Every body that is not Static returns on the first test, so the cost for normal calls is negligible.
+        private static void BeforeMove(Rigidbody2D __instance)
+        {
+            if (Bodies.Count == 0 || __instance == null) return;
+            try
+            {
+                if (__instance.bodyType != RigidbodyType2D.Static) return;
+                for (int i = 0; i < Bodies.Count; i++)
+                {
+                    if (!ReferenceEquals(Bodies[i].Body, __instance)) continue;
+                    __instance.bodyType = Bodies[i].Original;
+                    Bodies.RemoveAt(i);
+                    moveReverts++;
+                    if (Movers.Add(Key(__instance)))
+                        Feature.Log.LogWarning(Static.Name + ": " + __instance.name + " is moved by code (MoveRotation/MovePosition); it is excluded from static bodies.");
+                    return;
+                }
+            }
+            catch (Exception e) { Static.Fail(e); }
+        }
+
+        // Block name without Unity's "(Clone)" suffix; the unit the Movers list is keyed on.
+        private static string Key(Component c)
+        {
+            return c.gameObject.name.Replace("(Clone)", "").Trim();
+        }
+
         private static bool Stale(GameControl control, int ticket)
         {
             return !Static.Active || ticket != generation || control == null || control.Phase != GameControl.GamePhase.PLAY;
@@ -221,7 +286,7 @@ namespace UCHGamePerformance
                 done = end;
                 if (done < chosen.Count) { slices++; yield return null; }
             }
-            Feature.Log.LogInfo(Static.Name + ": " + Bodies.Count + " block bodies static for this play phase (watchdog reverts so far: " + watchdogReverts + ").");
+            Feature.Log.LogInfo(Static.Name + ": " + Bodies.Count + " block bodies static for this play phase (watchdog reverts so far: " + watchdogReverts + ", move reverts: " + moveReverts + ").");
         }
 
         private static void RevertBodies()
@@ -299,6 +364,8 @@ namespace UCHGamePerformance
         private static Rigidbody2D Eligible(Placeable p, ref int mismatches)
         {
             if (p == null || !(Plain(p) || Root(p)) || !p.Placed || p.PickedUp || p.MarkedForDestruction || p.Disabled || !p.gameObject.activeInHierarchy) return null;
+            // 2.7.4: a block that game code has been seen moving through MoveRotation / MovePosition stays Kinematic.
+            if (Movers.Count != 0 && Movers.Contains(Key(p))) return null;
             Rigidbody2D body = p.GetComponent<Rigidbody2D>();
             if (body == null || body.bodyType != RigidbodyType2D.Kinematic || !body.simulated) return null;
             if (!AuditCache.Active) return Structure(p, body) ? body : null;
@@ -367,6 +434,8 @@ namespace UCHGamePerformance
         // re-checked every 4th step to keep this net cheap. 2.5.0: a flagged transform whose pose is still exactly
         // the pose it had at conversion was not moved (Unity also flags children when a parent body changes type,
         // and 2.5.0 converts parents and attached pieces in slices); its flag is cleared and it stays static.
+        // Moves through MoveRotation / MovePosition never reach this check (the call fails on a static body), which
+        // is what the BeforeMove prefix (2.7.4) covers.
         private static IEnumerator Watchdog()
         {
             int step = 0;
@@ -402,7 +471,8 @@ namespace UCHGamePerformance
 
         internal static string Status()
         {
-            return "static=" + Bodies.Count + " watchdogReverts=" + watchdogReverts + " conversions=" + conversions + " cacheHits=" + cacheHits
+            return "static=" + Bodies.Count + " watchdogReverts=" + watchdogReverts + " moveReverts=" + moveReverts + " movers=" + Movers.Count
+                + " conversions=" + conversions + " cacheHits=" + cacheHits
                 + " cacheAudits=" + cacheAudits + " cacheMismatches=" + cacheMismatches + " cached=" + audits.Count + " slices=" + slices + " wide=" + Wide.Active
                 + " roots=" + Roots.Active + " rootBodies=" + rootBodies + " flagsCleared=" + flagsCleared;
         }
