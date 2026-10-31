@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace UCHGamePerformance
 {
-    [BepInPlugin(Guid, "UCH Game Performance", "2.13.0")]
+    [BepInPlugin(Guid, "UCH Game Performance", "2.14.0")]
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.nexus.uch.gameperformance";
@@ -64,7 +64,7 @@ namespace UCHGamePerformance
         {
             Feature.Log = Logger;
             started = true;
-            Logger.LogInfo("UCH Game Performance 2.13.0; vanilla target; all options require a restart.");
+            Logger.LogInfo("UCH Game Performance 2.14.0; vanilla target; all options require a restart.");
             // Master switch for A/B testing (UCH Perf Test can flip it by name); false leaves the game fully vanilla.
             if (!Config.Bind("General", "Enabled", true, "Master switch. false = this mod applies nothing and the game runs vanilla. Restart the game after changing this option.").Value)
             {
@@ -91,6 +91,9 @@ namespace UCHGamePerformance
             Logger.LogInfo("Projectiles/Rotation requested=transform / applied=vanilla transform write / bypassed(rb.rotation: interpolation, transform sync and visual equivalence unproven)");
             Enable(Magnet, true, "Update magnet collider radius only if its current value differs.", CpuHooks.InstallMagnet);
             Enable(Multipiece, true, "Run multipiece hover/destruction work when its inputs or part lifecycle change.", CpuHooks.InstallMultipiece);
+            // 2.14.0 (same as hotfix 2.7.7): vanilla floating-wire fix; removal waits one frame on the persistent plugin object.
+            MultipieceSupportHooks.Host = this;
+            Enable(MultipieceSupportHooks.Check, true, "Fixes the vanilla floating barbed-wire/ice/glue pieces online: a piece another player places is placed on your machine without the support check, and the parts that have nothing to hold on to are only removed if the sender's destroy message arrives in time, otherwise they float until the next round. Those parts are now removed one frame later, using exactly the support rule the sender applies to its own copy. Only parts your own game state says are unsupported; no network message is sent; level loads and blocks attached to other blocks are not checked; the next round's level rebuild from the host still wins.", MultipieceSupportHooks.Install);
             Enable(Mass, true, "Cache non-radius mover mass ratios between attachment/lifecycle changes. Radius-dependent ratios stay vanilla.", MassHooks.Install);
             Enable(Water, true, "Reuse water splash-key snapshots. Physics overlap queries retain vanilla's complete hit set and order.", CacheHooks.InstallWater);
             Enable(Events, true, "Reuse event cleanup lists with separate storage for nested event sends.", EventHooks.InstallScratch);
