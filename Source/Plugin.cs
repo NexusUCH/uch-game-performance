@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace UCHGamePerformance
 {
-    [BepInPlugin(Guid, "UCH Game Performance", "2.10.0")]
+    [BepInPlugin(Guid, "UCH Game Performance", "2.13.0")]
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.nexus.uch.gameperformance";
@@ -64,7 +64,7 @@ namespace UCHGamePerformance
         {
             Feature.Log = Logger;
             started = true;
-            Logger.LogInfo("UCH Game Performance 2.10.0; vanilla target; all options require a restart.");
+            Logger.LogInfo("UCH Game Performance 2.13.0; vanilla target; all options require a restart.");
             // Master switch for A/B testing (UCH Perf Test can flip it by name); false leaves the game fully vanilla.
             if (!Config.Bind("General", "Enabled", true, "Master switch. false = this mod applies nothing and the game runs vanilla. Restart the game after changing this option.").Value)
             {
@@ -101,8 +101,9 @@ namespace UCHGamePerformance
             StaticBlockHooks.Host = this;
             AnimatorPoseCullHooks.Host = this;
             Enable(ActDispatchHooks.Dispatch, true, "Run all block act loops from one central runner in the vanilla order and phase; each block's first step stays native.", ActDispatchHooks.Install);
-            Enable(PlaceableTickHooks.Tick, true, "Run plain blocks' per-step bookkeeping from one early loop instead of one native FixedUpdate call per block; attached blocks still run the original method.", PlaceableTickHooks.Install);
+            Enable(PlaceableTickHooks.Tick, true, "Run plain blocks' per-step bookkeeping from one early loop instead of one native FixedUpdate call per block; attached blocks still run the original method. Since 2.12.0 the loop only touches blocks whose placement check ran since the last step and blocks attached to another block.", PlaceableTickHooks.Install);
             Enable(PlaceableTickHooks.Parts, true, "Same for barbed-wire, ice and glue pieces and their invisible parent blocks (about 1,900 native per-step calls on a full wire level): these types inherit the empty block action and declare no per-frame logic of their own except the parent's per-frame part check, which the same loop now runs once per frame. Needs CPU/CentralPlaceableTick.", PlaceableTickHooks.InstallParts);
+            Enable(PlaceableTickHooks.Actives, false, "Experimental, off by default (no measurable gain on tested levels; kept for levels with many moving platforms and doors). Same for 25 reviewed block types that do act (doors, movers, saws, flipping and punching blocks, plants, hydrants, key/lock items, blowers): no per-frame script of their own besides the shared bookkeeping; their action keeps running unchanged in the central block loop. A block whose object is hidden goes back to native at once, and the component is only switched back on through a path that cannot start its action twice. Needs CPU/CentralPlaceableTick and CPU/CentralBlockLoops.", PlaceableTickHooks.InstallActive);
             Enable(AudioHooks.Emitters, true, "Skip a sound emitter's per-frame position update while its transform and sound environment are unchanged; it would send nothing in that case.", AudioHooks.Install);
             Enable(SceneSearchHooks.Search, true, "Answer repeated screen-wrap lookups by projectiles/hockey shooters within one frame from a single scene search; removes a multi-second freeze after loading full levels.", SceneSearchHooks.Install);
             Enable(SnapshotHooks.Skip, true, "In local games (no online lobby, no remote player or connection) pass the level XML on uncompressed instead of LZMA-compressing it for nobody when a level starts.", SnapshotHooks.Install);
@@ -114,6 +115,12 @@ namespace UCHGamePerformance
             Enable(BeehiveHooks.EarlyBees, true, "When a level starts, each beehive's Start switches off its ~60 bee objects, and in that frame every new component still has a queued Start, so each switch-off makes Unity scan that queue (16 s for 499 hives on a 10,000-block level). The bee objects are switched off already when the hive awakes, before anything is queued for them; the hive's Start and Reset run unchanged.", BeehiveHooks.Install);
             Enable(ListenerHooks.Membership, true, "Blocks and projectiles check event-listener membership with a hash set mirroring each listener list instead of scanning the whole list per registration; list contents and order stay vanilla.", ListenerHooks.Install);
             Enable(LogFileHooks.Buffer, true, "The game appends each log line to its own log file by opening and closing the file per line (~0.6 ms each, thousands per level start). Same text and order, written in batches every 250 ms and on quit.", LogFileHooks.Install);
+            try
+            {
+                StaticBlockHooks.WatchdogSlices = Math.Max(1, Math.Min(16, Config.Bind("Physics", "StaticBlocksWatchdogSlices", 4, new ConfigDescription(
+                    "The static-body watchdog checks 1/N of the static blocks per physics step, so each block every N steps (attached blocks every N steps, other blocks every 4*N). 1 checks every block every step as before 2.13.0. Restart required.", new AcceptableValueRange<int>(1, 16))).Value));
+            }
+            catch (Exception e) { StaticBlockHooks.WatchdogSlices = 4; Logger.LogWarning("Physics/StaticBlocksWatchdogSlices: config: " + e.Message + "; using 4."); }
             Enable(StaticBlockHooks.Static, true, "During the play phase give motionless plain blocks a Static body (skipped by the physics step); reverted before anything can move them.", StaticBlockHooks.Install);
             Enable(StaticBlockHooks.AuditCache, true, "Remember each plain block's static-body audit (parent chain and components) between play phases instead of re-auditing every block at every play start (~30 ms on a full level). The cheap state checks still run live; the audit is repeated in full every 16th play start and any difference turns this option off.", StaticBlockHooks.InstallAuditCache);
             Enable(StaticBlockHooks.Sliced, true, "Switch the static bodies on over a few frames (300 per frame) at play start instead of all in one frame. Switching them back stays immediate.", StaticBlockHooks.InstallSliced);

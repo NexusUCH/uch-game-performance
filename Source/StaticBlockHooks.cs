@@ -203,7 +203,7 @@ namespace UCHGamePerformance
                 {
                     if (!ReferenceEquals(Bodies[i].Body, __instance)) continue;
                     __instance.bodyType = Bodies[i].Original;
-                    Bodies.RemoveAt(i);
+                    Bury(i);
                     moveReverts++;
                     if (Movers.Add(__instance) && moveWarnings++ < 10)
                         Feature.Log.LogWarning(Static.Name + ": " + __instance.name + " is moved by code (MoveRotation/MovePosition); it stays out of static bodies in this scene.");
@@ -305,7 +305,7 @@ namespace UCHGamePerformance
                 done = end;
                 if (done < chosen.Count) { slices++; yield return null; }
             }
-            Feature.Log.LogInfo(Static.Name + ": " + Bodies.Count + " block bodies static for this play phase (watchdog reverts so far: " + watchdogReverts
+            Feature.Log.LogInfo(Static.Name + ": " + (Bodies.Count - tombstones) + " block bodies static for this play phase (watchdog reverts so far: " + watchdogReverts
                 + ", parent reverts: " + parentReverts + ", move reverts: " + moveReverts + ", mover-linked blocks: " + moverLinked + ").");
         }
 
@@ -314,6 +314,7 @@ namespace UCHGamePerformance
             for (int i = 0; i < Bodies.Count; i++)
                 if (Bodies[i].Body != null && Bodies[i].Body.bodyType == RigidbodyType2D.Static) Bodies[i].Body.bodyType = Bodies[i].Original;
             Bodies.Clear();
+            tombstones = 0;
         }
 
         private static void RevertAll(bool reconvert)
@@ -522,21 +523,57 @@ namespace UCHGamePerformance
         // 2.7.6: unless its local pose changed: then its parent moved and Unity held the Static child in place, so it is
         // reverted and put back on the parent. Moves through MoveRotation / MovePosition never reach this check (the
         // call fails on a static body and nothing moves); BeforeMove covers those.
+        // 2.13.0: sliced in space. Before, every step walked all entries (3,350 on Eternity, ~0.6 ms per physics step,
+        // lab-2121) and wrote the whole list back. Now one pass per step handles only the entries with
+        // index % slices == slice, and slice runs 0..slices-1, so each entry is examined once per cycle of `slices` steps.
+        // The roots cadence counts cycles, not steps: roots are checked on every 4th examination of the entry, exactly as
+        // before. With the default 4 slices: parented entries every 4 steps (20 ms -> 80 ms), root entries every 16 steps
+        // (80 ms -> 320 ms). WatchdogSlices = 1 examines every entry every step and roots every 4th step, as before.
+        // The per-entry checks, counters and log lines are unchanged. A removed entry (reverted here, destroyed, or given
+        // back by BeforeMove) becomes a tombstone in place (Body = null), so no other entry changes its index mid-cycle;
+        // tombstones are compacted at the start of a cycle, and only when there is one. The order of Bodies carries no
+        // meaning (BeforeMove and RevertBodies search or walk the whole list); a compaction can shift an entry to another
+        // slice once, which delays its next examination by at most slices-1 steps (worst gap 2*slices-1 steps).
+        internal static int WatchdogSlices = 4;
+        private static int tombstones;
+
+        private static void Bury(int i)
+        {
+            Converted dead = Bodies[i];
+            dead.Body = null; dead.Transform = null;
+            Bodies[i] = dead;
+            tombstones++;
+        }
+
         private static IEnumerator Watchdog()
         {
-            int step = 0;
+            int slice = 0, slices = 1, cycle = 0;
             while (true)
             {
                 yield return FixedWait;
                 if (!Static.Active || Bodies.Count == 0) continue;
                 try
                 {
-                    bool roots = (++step & 3) == 0;
-                    int write = 0;
-                    for (int i = 0; i < Bodies.Count; i++)
+                    if (slice == 0)
+                    {
+                        // Start of a cycle: the slice count is read here only, so it never changes inside a cycle.
+                        slices = Math.Max(1, Math.Min(16, WatchdogSlices));
+                        cycle++;
+                        if (tombstones != 0)
+                        {
+                            int write = 0;
+                            for (int i = 0; i < Bodies.Count; i++)
+                                if (!ReferenceEquals(Bodies[i].Body, null)) Bodies[write++] = Bodies[i];
+                            Bodies.RemoveRange(write, Bodies.Count - write);
+                            tombstones = 0;
+                        }
+                    }
+                    bool roots = (cycle & 3) == 0;
+                    for (int i = slice; i < Bodies.Count; i += slices)
                     {
                         Converted c = Bodies[i];
-                        if (c.Body == null) continue;
+                        if (ReferenceEquals(c.Body, null)) continue;
+                        if (c.Body == null) { Bury(i); continue; }
                         if ((roots || c.Parented) && c.Transform.hasChanged)
                         {
                             bool still = c.Transform.position == c.Position && c.Transform.rotation == c.Rotation;
@@ -548,6 +585,7 @@ namespace UCHGamePerformance
                                 c.Transform.localPosition = c.LocalPosition;
                                 c.Transform.localRotation = c.LocalRotation;
                                 if (parentReverts++ == 0) Feature.Log.LogWarning(Static.Name + ": watchdog reverted a block whose parent moved (" + c.Body.name + ").");
+                                Bury(i);
                                 continue;
                             }
                             if (still) { c.Transform.hasChanged = false; flagsCleared++; }
@@ -555,12 +593,12 @@ namespace UCHGamePerformance
                             {
                                 c.Body.bodyType = c.Original;
                                 if (watchdogReverts++ == 0) Feature.Log.LogWarning(Static.Name + ": watchdog reverted a block that moved (" + c.Body.name + ").");
+                                Bury(i);
                                 continue;
                             }
                         }
-                        Bodies[write++] = c;
                     }
-                    Bodies.RemoveRange(write, Bodies.Count - write);
+                    if (++slice >= slices) slice = 0;
                 }
                 catch (Exception e) { Static.Fail(e); }
             }
@@ -568,7 +606,7 @@ namespace UCHGamePerformance
 
         internal static string Status()
         {
-            return "static=" + Bodies.Count + " watchdogReverts=" + watchdogReverts + " conversions=" + conversions + " cacheHits=" + cacheHits
+            return "static=" + (Bodies.Count - tombstones) + " watchdogSlices=" + WatchdogSlices + " watchdogReverts=" + watchdogReverts + " conversions=" + conversions + " cacheHits=" + cacheHits
                 + " cacheAudits=" + cacheAudits + " cacheMismatches=" + cacheMismatches + " cached=" + audits.Count + " slices=" + slices + " wide=" + Wide.Active
                 + " roots=" + Roots.Active + " rootBodies=" + rootBodies + " flagsCleared=" + flagsCleared + " parentReverts=" + parentReverts
                 + " moveReverts=" + moveReverts + " movers=" + Movers.Count + " moverLinked=" + moverLinked + " moveGuards=" + guards;

@@ -24,6 +24,11 @@ namespace UCHGamePerformance
         private static Action<ActiveBlock, float> act;
         private static Func<ActiveBlock, IEnumerator> vanillaFixed, vanillaUpdate;
         private static int replacedTwice;
+        // 2.11.0 (CPU/CentralActiveBlockTick): the one block whose component is being switched back on by that option's
+        // restore path. Its OnEnable body is skipped, so a re-enable can never start a second act loop (see QuietEnable).
+        private static ActiveBlock quiet;
+        private static int quietEnables;
+        internal static bool GuardPatched;
 
         private sealed class Entry
         {
@@ -43,6 +48,7 @@ namespace UCHGamePerformance
             vanillaUpdate = Iterator("actOnUpdate");
             Dispatch.Restore = Restore;
             Dispatch.Patch(Reflect.DeclaredMethod(typeof(ActiveBlock), "OnEnable"), typeof(ActDispatchHooks), "BeforeBlockEnable", null, null, null);
+            GuardPatched = true;
             Host.StartCoroutine(FixedRunner());
             Host.StartCoroutine(UpdateRunner());
         }
@@ -76,8 +82,20 @@ namespace UCHGamePerformance
             return empty;
         }
 
+        // 2.11.0: switches a block's component back on without running ActiveBlock.OnEnable. The block's act loop (a runner
+        // entry, a handoff, or the vanilla coroutine Restore below restarted) was never stopped by enabled=false, so
+        // skipping OnEnable keeps exactly one loop. Works while this prefix is patched, also after Dispatch failed (Fail
+        // keeps the patch); the caller checks GuardPatched and is stopped before this feature at shutdown.
+        internal static void QuietEnable(ActiveBlock block)
+        {
+            quiet = block;
+            try { block.enabled = true; }
+            finally { quiet = null; }
+        }
+
         private static bool BeforeBlockEnable(ActiveBlock __instance)
         {
+            if (!ReferenceEquals(quiet, null) && ReferenceEquals(__instance, quiet)) { quietEnables++; return false; }
             if (!Dispatch.Active) return true;
             try
             {
@@ -153,7 +171,13 @@ namespace UCHGamePerformance
                 {
                     ActiveBlock block = entry.Block;
                     // Vanilla: a destroyed/deactivated owner kills the coroutine; the loop head checks markedForDestruction.
-                    if (block == null || !entry.Owner.activeInHierarchy || block.MarkedForDestruction) entry.Dead = true;
+                    if (block == null || !entry.Owner.activeInHierarchy || block.MarkedForDestruction)
+                    {
+                        entry.Dead = true;
+                        // 2.11.0: a centrally ticked block whose object went inactive gets its component back now (no
+                        // OnEnable while inactive), so a later reactivation restarts its loop natively as in vanilla.
+                        if (block != null && !entry.Owner.activeInHierarchy) PlaceableTickHooks.OwnerInactive(block);
+                    }
                     else if (entry.AddedAt != now && block.Active && !block.Paused)
                     {
                         try { act(block, delta); }
@@ -200,6 +224,15 @@ namespace UCHGamePerformance
             }
         }
 
-        internal static string Status() { return "fixed=" + FixedList.Count + " update=" + UpdateList.Count + " replacedTwice=" + replacedTwice; }
+        // 2.11.0: live (not dead) loop entries for one block, for the lab's duplicate-loop check (0 or 1 expected).
+        internal static int LiveEntries(ActiveBlock block)
+        {
+            int n = 0;
+            for (int i = 0; i < FixedList.Count; i++) if (ReferenceEquals(FixedList[i].Block, block) && !FixedList[i].Dead) n++;
+            for (int i = 0; i < UpdateList.Count; i++) if (ReferenceEquals(UpdateList[i].Block, block) && !UpdateList[i].Dead) n++;
+            return n;
+        }
+
+        internal static string Status() { return "fixed=" + FixedList.Count + " update=" + UpdateList.Count + " replacedTwice=" + replacedTwice + " quietEnables=" + quietEnables; }
     }
 }
