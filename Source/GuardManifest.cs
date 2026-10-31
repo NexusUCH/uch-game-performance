@@ -56,6 +56,7 @@ namespace UCHGamePerformance
             { "Assembly-CSharp.dll:060002E3", "4065D44655F1EDDC5E575EBA0E9C6926E2D8EB6A6FB4B119F0269DEBBC34DEDF" },
             { "Assembly-CSharp.dll:06000380", "42E1A5885E8C89E2CDDBE400F2435CE3902A0BC11F86CD99B786A02982F295F8" },
             { "Assembly-CSharp.dll:06000381", "F160E374C119114752B33D43A2539068599109917E76116C9C90161540275A50" },
+            { "Assembly-CSharp.dll:0600038A", "619CEF6581F1CB0CDC0A515522D3E18B8C7B1E8D884A98BD68719D94519CE9C9" },
             { "Assembly-CSharp.dll:0600038C", "3899D3B5C82E508A87134D3301F36412C141DF76BEA31D7B4BFFA98342F69384" },
             { "Assembly-CSharp.dll:0600038E", "25AB6543C97DEF922CE810AEED56554E99257F6FC42EB13DE7ABB2F4F041EB0B" },
             { "Assembly-CSharp.dll:060003A0", "24344007D7A66E43F1813FD66B297714BD66854DCA07E91A90526276797A0FC9" },
@@ -86,6 +87,9 @@ namespace UCHGamePerformance
             { "Assembly-CSharp.dll:06000127", "B6B8061EF571121A95E15284C8532A00CC346B9097ED1ACFF4115D0C275D5179" },
             { "Assembly-CSharp-firstpass.dll:06000067", "D91283C71532161D7C5D554925982F9A75E708F4CAD80E5D236C0D5936CBE030" },
             { "AK.Wwise.Unity.MonoBehaviour.dll:06000053", "5C92590D300B127EF36BFDCA2DF742ACA008BA7C2A598635AA7106161F15B104" },
+            { "UnityEngine.Physics2DModule.dll:06000287", "DB476297D23E67A59F2475B08B315C986D334B4547B4AE78D08A1E9E74D47897" },
+            { "UnityEngine.Physics2DModule.dll:06000288", "F7B28BE54FF4A3F1D16506B31544E5CF0A8F216DC92CC7C7801124BF0C158E3C" },
+            { "UnityEngine.Physics2DModule.dll:0600028A", "30142108DB9901D385653CA12AF427BC65C245FBA51D07D9E518CB4B51705849" },
         };
         internal static readonly Dictionary<string,string> Signatures = new Dictionary<string,string>
         {
@@ -139,6 +143,7 @@ namespace UCHGamePerformance
             { "Assembly-CSharp.dll:060002E3", "FerrisWheel::Reset():System.Void:instance" },
             { "Assembly-CSharp.dll:06000380", "MultipieceBlock::Awake():System.Void:instance" },
             { "Assembly-CSharp.dll:06000381", "MultipieceBlock::Update():System.Void:instance" },
+            { "Assembly-CSharp.dll:0600038A", "MultipieceBlock::Place(System.Int32,System.Boolean,System.Boolean):System.Void:instance" },
             { "Assembly-CSharp.dll:0600038C", "MultipieceBlock::RemovePart(MultipiecePart):System.Void:instance" },
             { "Assembly-CSharp.dll:0600038E", "MultipieceBlock::GetTotalMass():System.Single:instance" },
             { "Assembly-CSharp.dll:060003A0", "MultipiecePart::OnDestroy():System.Void:instance" },
@@ -169,6 +174,9 @@ namespace UCHGamePerformance
             { "Assembly-CSharp.dll:06000127", "ActiveBlock+<actOnFixed>d__12::MoveNext():System.Boolean:instance" },
             { "Assembly-CSharp-firstpass.dll:06000067", "Smooth.NetworkState::.ctor(Smooth.SmoothSync):constructor:instance" },
             { "AK.Wwise.Unity.MonoBehaviour.dll:06000053", "AkGameObj::Update():System.Void:instance" },
+            { "UnityEngine.Physics2DModule.dll:06000287", "UnityEngine.Rigidbody2D::MovePosition(UnityEngine.Vector2):System.Void:instance" },
+            { "UnityEngine.Physics2DModule.dll:06000288", "UnityEngine.Rigidbody2D::MoveRotation(System.Single):System.Void:instance" },
+            { "UnityEngine.Physics2DModule.dll:0600028A", "UnityEngine.Rigidbody2D::MoveRotation(UnityEngine.Quaternion):System.Void:instance" },
         };
     }
 }
