@@ -1,6 +1,6 @@
 # UCH Game Performance 3.0.0
 
-A performance mod for **Ultimate Chicken Horse**. It makes full, busy levels run and load much faster without changing how the game plays: same physics, same hitboxes, same timing, same rules. Every optimization is a separate switch in the config, and each one reports in the log whether it is active.
+A performance mod for **Ultimate Chicken Horse**. It makes full levels run and load much faster without changing how the game plays: same physics, same hitboxes, same timing, same rules. Every optimization is a separate switch in the config, and each one reports in the log whether it is active.
 
 It replaces the older UCH Game Performance 1.x, BetterPerformance and LevelLoadingOptimizer; you don't need those alongside it (keeping them installed is fine).
 
@@ -128,7 +128,7 @@ Config file: `BepInEx/config/com.nexus.uch.gameperformance.advanced.cfg` (before
 | CPU / QuietHotPathLogs | On | Removes only three known placement/pool messages, including their string construction. Other logging stays enabled. |
 | Loading / HierarchyPathCache | On, partial | Reuses parsed paths within a load pass. Root lookups stay live so hierarchy changes are respected. |
 | Loading / PlacedBlocksHashSet | On | Speeds up placed-block membership tests; preserves the original ordered list. |
-| Experimental / PhysicsMultithreading | On | Enables Unity 2D physics jobs with consistency sorting, spreading the physics step over CPU cores; does not change simulation mode or worker counts. Biggest measured gain on busy maps; turn off if anything looks different. |
+| Experimental / PhysicsMultithreading | On | Enables Unity 2D physics jobs with consistency sorting, spreading the physics step over CPU cores; does not change simulation mode or worker counts. Biggest measured gain on full levels; turn off if anything looks different. |
 | Experimental / SmoothSyncAllocations | Off, partial | Removes one overwritten temporary allocation per send. Other sync allocations remain vanilla. |
 | Graphics / SlowMotionScreenEffect | Vanilla | `Vanilla`, `SkipWhenIdle` (plain blit with neutral shader inputs), or `Remove` (always plain blit). Active slowdown timing stays vanilla. Cosmetic opt-in. |
 | Experimental / QuickSaverRepair | Off; unavailable | Remains vanilla; blanket layer/body changes would change gameplay state. |
