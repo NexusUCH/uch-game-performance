@@ -7,6 +7,7 @@ namespace UCHGamePerformance
     // off, re-applied right after GameState.Start (the game's own `Application.targetFrameRate = 300` line; GameState has
     // no Awake, which is why the 2.0.0 TargetFrameRate patch never attached). Shares EngineHooks with
     // Engine/TargetFrameRate; an explicit TargetFrameRate wins and this option is then reported as bypassed.
+    // 2.15.0: VSync is written through ScreenTearingHooks.SetVSync, which leaves it alone while Fix screen tearing is on.
     internal static class UncapHooks
     {
         internal const int Target = 1000;
@@ -18,10 +19,10 @@ namespace UCHGamePerformance
             EngineHooks.Target = Target;
             EngineHooks.Fps = Uncap;
             int previousTarget = Application.targetFrameRate, previousSync = QualitySettings.vSyncCount;
-            Uncap.Restore = delegate { Application.targetFrameRate = previousTarget; QualitySettings.vSyncCount = previousSync; };
+            Uncap.Restore = delegate { Application.targetFrameRate = previousTarget; ScreenTearingHooks.SetVSync(previousSync); };
             Uncap.Patch(Reflect.Method(typeof(GameState), "Start"), typeof(EngineHooks), null, "AfterGameState", null, null);
             Application.targetFrameRate = Target;
-            QualitySettings.vSyncCount = 0;
+            ScreenTearingHooks.SetVSync(0);
         }
 
         internal static string Status()

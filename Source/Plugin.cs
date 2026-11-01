@@ -12,10 +12,12 @@ using UnityEngine.SceneManagement;
 
 namespace UCHGamePerformance
 {
-    [BepInPlugin(Guid, "UCH Game Performance", "2.14.0")]
+    [BepInPlugin(Guid, "UCH Game Performance", "2.15.0")]
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.nexus.uch.gameperformance";
+        // 2.15.0: the advanced config file (all technical options incl. General/Enabled), for tools such as UCH Perf Test.
+        public static ConfigFile AdvancedConfig;
         internal static readonly Feature Wait = new Feature("CPU/ReuseFixedUpdateWait");
         internal static readonly Feature EmptyLoops = new Feature("CPU/SkipEmptyBlockLoops");
         internal static readonly Feature PhysMods = new Feature("CPU/PhysModEmptyCache");
@@ -43,7 +45,7 @@ namespace UCHGamePerformance
         private bool Option(Feature feature, bool value, string description)
         {
             int slash = feature.Name.IndexOf('/');
-            return Config.Bind(feature.Name.Substring(0, slash), feature.Name.Substring(slash + 1), value,
+            return this.Advanced().Bind(feature.Name.Substring(0, slash), feature.Name.Substring(slash + 1), value,
                 description + " Restart the game after changing this option.").Value;
         }
 
@@ -64,13 +66,18 @@ namespace UCHGamePerformance
         {
             Feature.Log = Logger;
             started = true;
-            Logger.LogInfo("UCH Game Performance 2.14.0; vanilla target; all options require a restart.");
-            // Master switch for A/B testing (UCH Perf Test can flip it by name); false leaves the game fully vanilla.
-            if (!Config.Bind("General", "Enabled", true, "Master switch. false = this mod applies nothing and the game runs vanilla. Restart the game after changing this option.").Value)
+            Logger.LogInfo("UCH Game Performance 2.15.0; vanilla target; the two Settings apply live, all advanced options require a restart.");
+            // 2.15.0: main file = the two live Settings (the mod manager's settings page); everything else in the advanced file.
+            SettingsConfig.Open(this, Logger);
+            AdvancedConfig = this.Advanced();
+            // Master switch for A/B testing (lives in the advanced file since 2.15.0); false leaves the game fully vanilla.
+            if (!this.Advanced().Bind("General", "Enabled", true, "Master switch. false = this mod applies nothing and the game runs vanilla. Restart the game after changing this option.").Value)
             {
-                Logger.LogWarning("General/Enabled=false: no features applied; the game runs vanilla.");
+                Logger.LogWarning("General/Enabled=false: no features applied (the two Settings included); the game runs vanilla.");
                 return;
             }
+            // Before EngineFeatures: with Fix screen tearing on, UncapFrameRate/TargetFrameRate leave VSync alone.
+            SettingsConfig.StartSettings();
             // The owner's vanilla-only decision supersedes the earlier compatibility requirements.
             List<string> extra = new List<string>();
             foreach (KeyValuePair<string, PluginInfo> item in Chainloader.PluginInfos)
@@ -79,7 +86,7 @@ namespace UCHGamePerformance
                 ". They can stay installed. LevelLoadingOptimizer is fine alongside this mod; BetterPerformance overlaps with it, so turn BetterPerformance off if your mod manager allows it.");
 
             EngineFeatures();
-            Enable(Wait, true, "Reuse the fixed-step wait object without changing coroutine scheduling.", CpuHooks.InstallWait);
+            Enable(Wait, true, SettingsConfig.Header + "Reuse the fixed-step wait object without changing coroutine scheduling.", CpuHooks.InstallWait);
             Enable(EmptyLoops, true, "Skip coroutines whose block inherits the verified empty base action.", CpuHooks.InstallEmptyLoops);
             Enable(PhysMods, true, "Share empty physics-modifier arrays in base methods; overrides keep their own logic.", CpuHooks.InstallPhysMods);
             Enable(ColliderArrays, true, "Reuse collider arrays, checking live component membership on every use.", CacheHooks.InstallColliderArrays);
@@ -120,7 +127,7 @@ namespace UCHGamePerformance
             Enable(LogFileHooks.Buffer, true, "The game appends each log line to its own log file by opening and closing the file per line (~0.6 ms each, thousands per level start). Same text and order, written in batches every 250 ms and on quit.", LogFileHooks.Install);
             try
             {
-                StaticBlockHooks.WatchdogSlices = Math.Max(1, Math.Min(16, Config.Bind("Physics", "StaticBlocksWatchdogSlices", 4, new ConfigDescription(
+                StaticBlockHooks.WatchdogSlices = Math.Max(1, Math.Min(16, this.Advanced().Bind("Physics", "StaticBlocksWatchdogSlices", 4, new ConfigDescription(
                     "The static-body watchdog checks 1/N of the static blocks per physics step, so each block every N steps (attached blocks every N steps, other blocks every 4*N). 1 checks every block every step as before 2.13.0. Restart required.", new AcceptableValueRange<int>(1, 16))).Value));
             }
             catch (Exception e) { StaticBlockHooks.WatchdogSlices = 4; Logger.LogWarning("Physics/StaticBlocksWatchdogSlices: config: " + e.Message + "; using 4."); }
@@ -143,7 +150,7 @@ namespace UCHGamePerformance
             Enable(Smooth, false, "Remove the overwritten temporary state allocation in the send constructor; packet generation remains unchanged.", ExperimentalHooks.InstallSmooth);
             try
             {
-                ScreenMode = Config.Bind("Graphics", "SlowMotionScreenEffect", ScreenEffectMode.Vanilla,
+                ScreenMode = this.Advanced().Bind("Graphics", "SlowMotionScreenEffect", ScreenEffectMode.Vanilla,
                     "Vanilla: original screen effect. SkipWhenIdle: plain blit when the shader inputs are neutral. Remove: always plain blit. Restart required.").Value;
                 SlowMo.Start(ScreenMode != ScreenEffectMode.Vanilla, ExperimentalHooks.InstallSlowMo, null);
                 Logger.LogInfo("Graphics/SlowMotionScreenEffect mode=" + ScreenMode);
@@ -164,7 +171,7 @@ namespace UCHGamePerformance
             });
             Feature gc = new Feature("Engine/IncrementalGC");
             Enable(gc, true, "Set the work budget of already-enabled incremental garbage collection.", delegate {
-                float slice = Config.Bind("Engine", "IncrementalGCSliceMilliseconds", 1f,
+                float slice = this.Advanced().Bind("Engine", "IncrementalGCSliceMilliseconds", 1f,
                     new ConfigDescription("Incremental GC work budget in milliseconds; applies only when incremental GC is already active. Restart required.", new AcceptableValueRange<float>(0.1f, 10f))).Value;
                 if (!GarbageCollector.isIncremental) throw new NotSupportedException("incremental GC is not active; left vanilla");
                 ulong previous = GarbageCollector.incrementalTimeSliceNanoseconds;
@@ -197,16 +204,16 @@ namespace UCHGamePerformance
 
         private void ConfigureTarget(Feature fps)
         {
-            int target = Config.Bind("Engine", "TargetFrameRate", 0, new ConfigDescription(
+            int target = this.Advanced().Bind("Engine", "TargetFrameRate", 0, new ConfigDescription(
                 "0 leaves the game's FPS cap and VSync alone. A positive value sets that cap and turns VSync off after GameState starts. Restart required.", new AcceptableValueRange<int>(0, 10000))).Value;
             fps.Start(target > 0, delegate {
                 EngineHooks.Target = target;
                 EngineHooks.Fps = fps;
                 int previousTarget = Application.targetFrameRate, previousSync = QualitySettings.vSyncCount;
-                fps.Restore = delegate { Application.targetFrameRate = previousTarget; QualitySettings.vSyncCount = previousSync; };
+                fps.Restore = delegate { Application.targetFrameRate = previousTarget; ScreenTearingHooks.SetVSync(previousSync); };
                 fps.Patch(Reflect.Method(typeof(GameState), "Start"), typeof(EngineHooks), null, "AfterGameState", null, null);
                 Application.targetFrameRate = target;
-                QualitySettings.vSyncCount = 0;
+                ScreenTearingHooks.SetVSync(0);
             }, null);
         }
 
@@ -244,7 +251,7 @@ namespace UCHGamePerformance
         internal static void ApplyTarget()
         {
             if (Fps == null || !Fps.Active) return;
-            try { Application.targetFrameRate = Target; QualitySettings.vSyncCount = 0; }
+            try { Application.targetFrameRate = Target; ScreenTearingHooks.SetVSync(0); }
             catch (Exception e) { Fps.Fail(e); }
         }
         private static void AfterGameState() { ApplyTarget(); }

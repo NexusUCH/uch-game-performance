@@ -1,4 +1,4 @@
-# UCH Game Performance 2.14.0
+# UCH Game Performance 2.15.0
 
 A performance mod for **Ultimate Chicken Horse**. It makes full, busy levels run and load much faster without changing how the game plays: same physics, same hitboxes, same timing, same rules. Every optimization is a separate switch in the config, and each one reports in the log whether it is active.
 
@@ -38,7 +38,7 @@ No. The mod never touches the physics step, the maximum time step, solver settin
 
 Checks done before each release, on the level above: hazards (spikes, saws, gloves, axes, flipping blocks, doors, shooters) end exactly the same way for a test character with and without the mod; arrows fire on the same physics step; nothing that is out of view can affect a player or an arrow differently than in vanilla.
 
-If you ever want to compare, set `General / Enabled` to `false` in the config: the mod stays installed but applies nothing.
+If you ever want to compare, set `General / Enabled` to `false` in the advanced config file: the mod stays installed but applies nothing.
 
 ## What it optimizes
 
@@ -50,9 +50,20 @@ In plain words; the exact list of switches follows below.
 - **Animations out of view.** On a full level most block animations are off screen, yet Unity evaluated all of them every frame. Purely visual animations are not evaluated while nothing of them is visible. Gameplay animations keep their state machines and events running (shots fire at the same moment from the same spot) and only skip drawing while off screen; a block whose animation moves a collider stays fully live whenever any player or projectile could reach it.
 - **Projectiles and small things.** Reused arrays and objects instead of allocating them per shot or per hit, idle scripts switched off, a few per-frame scene searches replaced by the lists the game already keeps, and Unity's multithreaded 2D physics jobs turned on.
 
+## Settings
+
+Two everyday settings, shown on the mod's settings page in a mod manager (for example Barnyard) and stored in `BepInEx/config/com.nexus.uch.gameperformance.cfg`. Both are off by default and switch on and off at once, without a restart.
+
+| Setting | Default | What it does |
+|---|---|---|
+| Fix screen tearing | Off | On = VSync on with a one-frame queue: no tearing, FPS capped at the monitor refresh rate, less input delay than the game's own VSync. Off = the game's own setting. |
+| Show FPS counter | Off | Shows the current FPS in the top right corner. |
+
+All performance switches now live in `com.nexus.uch.gameperformance.advanced.cfg` (see Options below).
+
 ## Options
 
-Config file: `BepInEx/config/com.nexus.uch.gameperformance.cfg`. **Restart UCH after every change.** All optimizations are on by default; the two frame-rate options and the process priority are off. Section / key spelling matches the config.
+Config file: `BepInEx/config/com.nexus.uch.gameperformance.advanced.cfg` (before 2.15.0 these were in `com.nexus.uch.gameperformance.cfg`; the first start of 2.15.0 moves your values over). **Restart UCH after every change.** All optimizations are on by default; the two frame-rate options and the process priority are off. Section / key spelling matches the config.
 
 <details>
 <summary>Full list of switches (click to expand)</summary>
@@ -128,7 +139,7 @@ Use the same level, the same players and the same graphics settings with and wit
 
 ## Uninstall
 
-Close UCH and remove `BepInEx/plugins/UCH Game Performance`. You can delete its config file too. No game files need restoring.
+Close UCH and remove `BepInEx/plugins/UCH Game Performance`. You can delete its two config files too. No game files need restoring.
 
 ## Building from source
 
