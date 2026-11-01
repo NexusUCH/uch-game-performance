@@ -6,19 +6,23 @@ It replaces the older UCH Game Performance 1.x, BetterPerformance and LevelLoadi
 
 ## What to expect
 
-Measured on "Eternity" (level code **8VKK-7G4K**: about 4,000 blocks, 2,400 of them active, 1,700 barbed-wire pieces, 20-40 arrows in the air at any time), one of the heaviest community levels. Local free play, FPS cap lifted, fresh game start per run, 20 s recording each. Full details and the exact setup are in the [Eternity test report](docs/eternity-test-report-2.7.2.md) (measured on 2.7.2; later versions only fix bugs).
+Measured on "Eternity" (level code **8VKK-7G4K**: about 4,000 blocks, 2,400 of them active, 1,700 barbed-wire pieces, 20-40 arrows in the air at any time), one of the heaviest community levels. Local free play, FPS cap lifted, fresh game start per run, 20 s recording each, all in one session:
 
-| | Average FPS | Typical frame | Worst 1 % of frames | Frames slower than 8.33 ms (per 20 s) |
-|---|---|---|---|---|
-| Vanilla | 108 | 12.1 ms | 15.7 ms | 1,201 |
-| **With the mod** | **214 - 224** | **3.3 - 3.4 ms** | **9.7 - 10.2 ms** | **315 - 446** |
+| | Average FPS | Frames slower than 8.33 ms (per 20 s) |
+|---|---|---|
+| Plain game | 106 | 1,199 |
+| **3.0.0** | **300 - 311** (three recordings) | **about 120** (143 with the FPS counter on) |
+
+That is 2.8 to 2.9 times the plain game. In an earlier session on the same level, 2.7.4 measured 2.2 times the plain game, so 3.0.0 is roughly a third faster than 2.7.4.
+
+Loading, measured on 2.7.2 (full details and setup in the [Eternity test report](docs/eternity-test-report-2.7.2.md)):
 
 | | Portal entry to level ready | Longest freeze while loading |
 |---|---|---|
 | Vanilla | 29.8 s | 26.0 s |
 | **With the mod** | **5.7 - 5.9 s** | **2.0 - 2.1 s** |
 
-Roughly twice the frame rate, a frame 3.6x shorter, and a level that loads in 6 s instead of 30. The gain grows with how full a level is: a small level that already runs at several hundred FPS will not change much, a level that stutters will. Numbers are from one PC (Ryzen 5 5600X, RTX 4060); the ratio should carry over, the absolute FPS will not. Real rounds with players and online games were not benchmarked.
+Close to three times the frame rate, about ten times fewer slow frames, and a level that loads in 6 s instead of 30. The gain grows with how full a level is: a small level that already runs at several hundred FPS will not change much, a level that stutters will. Numbers are from one PC (Ryzen 5 5600X, RTX 4060, 240 Hz monitor); the ratio should carry over, the absolute FPS will not. Real rounds with players and online games were not benchmarked.
 
 ## Install
 
