@@ -22,6 +22,8 @@ Loading, measured on 2.7.2 (full details and setup in the [Eternity test report]
 | Vanilla | 29.8 s | 26.0 s |
 | **With the mod** | **5.7 - 5.9 s** | **2.0 - 2.1 s** |
 
+All test results version by version, with the chart and the per-phase frame times: [Performance history](docs/performance-history.md).
+
 Close to three times the frame rate, about ten times fewer slow frames, and a level that loads in 6 s instead of 30. The gain grows with how full a level is: a small level that already runs at several hundred FPS will not change much, a level that stutters will. Numbers are from one PC (Ryzen 5 5600X, RTX 4060, 240 Hz monitor); the ratio should carry over, the absolute FPS will not. Real rounds with players and online games were not benchmarked.
 
 ## Install
