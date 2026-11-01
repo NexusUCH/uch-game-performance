@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace UCHGamePerformance
 {
-    [BepInPlugin(Guid, "UCH Game Performance", "2.15.0")]
+    [BepInPlugin(Guid, "UCH Game Performance", "3.0.0")]
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.nexus.uch.gameperformance";
@@ -66,7 +66,7 @@ namespace UCHGamePerformance
         {
             Feature.Log = Logger;
             started = true;
-            Logger.LogInfo("UCH Game Performance 2.15.0; vanilla target; the two Settings apply live, all advanced options require a restart.");
+            Logger.LogInfo("UCH Game Performance 3.0.0; vanilla target; the two Settings apply live, all advanced options require a restart.");
             // 2.15.0: main file = the two live Settings (the mod manager's settings page); everything else in the advanced file.
             SettingsConfig.Open(this, Logger);
             AdvancedConfig = this.Advanced();

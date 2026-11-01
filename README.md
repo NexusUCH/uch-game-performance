@@ -1,4 +1,4 @@
-# UCH Game Performance 2.15.0
+# UCH Game Performance 3.0.0
 
 A performance mod for **Ultimate Chicken Horse**. It makes full, busy levels run and load much faster without changing how the game plays: same physics, same hitboxes, same timing, same rules. Every optimization is a separate switch in the config, and each one reports in the log whether it is active.
 
@@ -63,7 +63,7 @@ All performance switches now live in `com.nexus.uch.gameperformance.advanced.cfg
 
 ## Options
 
-Config file: `BepInEx/config/com.nexus.uch.gameperformance.advanced.cfg` (before 2.15.0 these were in `com.nexus.uch.gameperformance.cfg`; the first start of 2.15.0 moves your values over). **Restart UCH after every change.** All optimizations are on by default; the two frame-rate options and the process priority are off. Section / key spelling matches the config.
+Config file: `BepInEx/config/com.nexus.uch.gameperformance.advanced.cfg` (before 2.15.0, e.g. in 2.7.4, these were in `com.nexus.uch.gameperformance.cfg`; the first start of 3.0.0 moves your values over automatically). **Restart UCH after every change.** All optimizations are on by default; the two frame-rate options and the process priority are off. Section / key spelling matches the config.
 
 <details>
 <summary>Full list of switches (click to expand)</summary>
