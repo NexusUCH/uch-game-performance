@@ -10,6 +10,7 @@ namespace UCHGamePerformance
     // targetFrameRate while VSync is on, so that stays as it is) and after SaveFileData.ApplySettings (the game applies
     // the saved VSync option there once the main user's save has loaded, which is after GameState.Start). While the fix
     // is on, Engine/UncapFrameRate and Engine/TargetFrameRate leave VSync alone (SetVSync). Display mode is not touched.
+    // 3.1.0: Settings / Uncap FPS (UncapSettingHooks) writes nothing while the fix is on and is told when the fix goes off.
     internal static class ScreenTearingHooks
     {
         internal static readonly Feature Fix = new Feature("Engine/ScreenTearingFix");
@@ -86,6 +87,8 @@ namespace UCHGamePerformance
                     RestoreValues();
                     // Back to what the frame-rate options would have set without the fix.
                     EngineHooks.ApplyTarget();
+                    // 3.1.0: Settings / Uncap FPS waits while the fix is on; it applies (or puts its VSync back) now.
+                    UncapSettingHooks.TearingOff();
                     Feature.Log.LogInfo("Engine/ScreenTearingFix off (live): " + Status());
                 }
             }

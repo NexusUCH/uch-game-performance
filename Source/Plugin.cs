@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace UCHGamePerformance
 {
-    [BepInPlugin(Guid, "UCH Game Performance", "3.0.0")]
+    [BepInPlugin(Guid, "UCH Game Performance", "3.1.0")]
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Guid = "com.nexus.uch.gameperformance";
@@ -66,14 +66,14 @@ namespace UCHGamePerformance
         {
             Feature.Log = Logger;
             started = true;
-            Logger.LogInfo("UCH Game Performance 3.0.0; vanilla target; the two Settings apply live, all advanced options require a restart.");
+            Logger.LogInfo("UCH Game Performance 3.1.0; vanilla target; the Settings page applies live, all advanced options require a restart.");
             // 2.15.0: main file = the two live Settings (the mod manager's settings page); everything else in the advanced file.
             SettingsConfig.Open(this, Logger);
             AdvancedConfig = this.Advanced();
             // Master switch for A/B testing (lives in the advanced file since 2.15.0); false leaves the game fully vanilla.
             if (!this.Advanced().Bind("General", "Enabled", true, "Master switch. false = this mod applies nothing and the game runs vanilla. Restart the game after changing this option.").Value)
             {
-                Logger.LogWarning("General/Enabled=false: no features applied (the two Settings included); the game runs vanilla.");
+                Logger.LogWarning("General/Enabled=false: no features applied (the Settings page included); the game runs vanilla.");
                 return;
             }
             // Before EngineFeatures: with Fix screen tearing on, UncapFrameRate/TargetFrameRate leave VSync alone.
@@ -86,6 +86,8 @@ namespace UCHGamePerformance
                 ". They can stay installed. LevelLoadingOptimizer is fine alongside this mod; BetterPerformance overlaps with it, so turn BetterPerformance off if your mod manager allows it.");
 
             EngineFeatures();
+            // 3.1.0: Settings / Uncap FPS after the advanced frame-rate options, so its GameState.Start postfix runs after theirs.
+            UncapSettingHooks.Start();
             Enable(Wait, true, SettingsConfig.Header + "Reuse the fixed-step wait object without changing coroutine scheduling.", CpuHooks.InstallWait);
             Enable(EmptyLoops, true, "Skip coroutines whose block inherits the verified empty base action.", CpuHooks.InstallEmptyLoops);
             Enable(PhysMods, true, "Share empty physics-modifier arrays in base methods; overrides keep their own logic.", CpuHooks.InstallPhysMods);

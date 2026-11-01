@@ -1,4 +1,4 @@
-# UCH Game Performance 3.0.0
+# UCH Game Performance 3.1.0
 
 A performance mod for **Ultimate Chicken Horse**. It makes full levels run and load much faster without changing how the game plays: same physics, same hitboxes, same timing, same rules. Every optimization is a separate switch in the config, and each one reports in the log whether it is active.
 
@@ -13,7 +13,7 @@ Measured on "Eternity" (level code **8VKK-7G4K**: about 4,000 blocks, 2,400 of t
 | Vanilla | 106 | 1,199 |
 | **3.0.0** | **300 - 311** (three recordings) | **about 120** (143 with the FPS counter on) |
 
-That is 2.8 to 2.9 times vanilla. In an earlier session on the same level, 2.7.4 measured 2.2 times vanilla, so 3.0.0 is roughly a third faster than 2.7.4.
+That is 2.8 to 2.9 times vanilla. In an earlier session on the same level, 2.7.4 measured 2.2 times vanilla, so 3.0.0 is roughly a third faster than 2.7.4. 3.1.0 only adds settings; its performance code is the same as 3.0.0.
 
 Loading, measured on 2.7.2 (full details and setup in the [Eternity test report](docs/eternity-test-report-2.7.2.md)):
 
@@ -56,12 +56,20 @@ In plain words; the exact list of switches follows below.
 
 ## Settings
 
-Two everyday settings, shown on the mod's settings page in a mod manager (for example Barnyard) and stored in `BepInEx/config/com.nexus.uch.gameperformance.cfg`. Both are off by default and switch on and off at once, without a restart.
+Eight everyday settings, shown on the mod's settings page in a mod manager (for example Barnyard) in this order and stored in `BepInEx/config/com.nexus.uch.gameperformance.cfg`. Every one of them takes effect at once, without a restart. The three switches are off by default.
 
 | Setting | Default | What it does |
 |---|---|---|
 | Fix screen tearing | Off | On = VSync on with a one-frame queue: no tearing, FPS capped at the monitor refresh rate, less input delay than the game's own VSync. Off = the game's own setting. |
-| Show FPS counter | Off | Shows the current FPS in the top right corner. |
+| Uncap FPS | Off | On = no FPS cap and VSync off (can tear on monitors without G-Sync/FreeSync). Off = the game's own cap. Does nothing while Fix screen tearing is on and applies as soon as the fix is off. |
+| Show FPS counter | Off | Shows the current FPS, in the top left corner by default. |
+| FPS counter color | White | White, Yellow, Green, Cyan, Orange, Red or Black (Black gets a light outline). |
+| FPS counter font | Game | Game = the game's own font. Default = a plain built-in font. |
+| FPS counter size | 28 | Text size at 1080p, 10 to 80. |
+| FPS counter X | 0 | Left edge in percent of the screen width (0 = left edge). |
+| FPS counter Y | 0 | Top edge in percent of the screen height (0 = top edge). |
+
+The counter always stays fully on screen. Barnyard cannot hide settings, only grey them out: the five FPS counter rows are greyed out while Show FPS counter is off, and Uncap FPS is greyed out while Fix screen tearing is on.
 
 All performance switches now live in `com.nexus.uch.gameperformance.advanced.cfg` (see Options below).
 
@@ -79,7 +87,7 @@ Config file: `BepInEx/config/com.nexus.uch.gameperformance.advanced.cfg` (before
 | Engine / IncrementalGC | On | Sets the budget of incremental garbage collection, only if the game already uses it. |
 | Engine / IncrementalGCSliceMilliseconds | 1 ms | Budget, from 0.1 to 10 ms. Appears when incremental-GC tuning is requested on a supported build. |
 | Engine / TargetFrameRate | 0 | 0 leaves FPS and VSync alone. Positive values set a cap and disable VSync at startup. |
-| Engine / UncapFrameRate | Off | On lifts the FPS cap to 1000 and turns VSync off (the setting the benchmarks above use). Off keeps the game's own cap. TargetFrameRate wins when set. |
+| Engine / UncapFrameRate | Off | On lifts the FPS cap to 1000 and turns VSync off (the setting the benchmarks above use). Off keeps the game's own cap. TargetFrameRate wins when set. Settings / Uncap FPS does the same without a restart. |
 | Engine / HighProcessPriority | Off | Optional Windows High process priority. |
 | CPU / ReuseFixedUpdateWait | On | Reuses a fixed-step coroutine wait object. |
 | CPU / SkipEmptyBlockLoops | On | Avoids starting block loops whose action does nothing. |
@@ -139,7 +147,7 @@ No global logger suppression, event pruning, built-in profiler, hardware-specifi
 
 ## Measuring it yourself
 
-Use the same level, the same players and the same graphics settings with and without the mod (the `General / Enabled` switch), keep menus closed, give the level a few seconds of warm-up, and repeat each run. Lift the FPS cap (`Engine / UncapFrameRate = true`), otherwise the cap hides the difference. The separate UCH Perf Test plugin was used for the numbers above; it is optional.
+Use the same level, the same players and the same graphics settings with and without the mod (the `General / Enabled` switch), keep menus closed, give the level a few seconds of warm-up, and repeat each run. Lift the FPS cap (Settings / Uncap FPS, or `Engine / UncapFrameRate = true`), otherwise the cap hides the difference. The separate UCH Perf Test plugin was used for the numbers above; it is optional.
 
 ## Uninstall
 

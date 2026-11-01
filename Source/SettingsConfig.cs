@@ -8,7 +8,8 @@ using BepInEx.Logging;
 namespace UCHGamePerformance
 {
     // 2.15.0: config split. The plugin's own Config (com.nexus.uch.gameperformance.cfg) is what mod managers such as
-    // Barnyard list as the mod's settings page, so it holds only the two everyday, live settings in section "Settings".
+    // Barnyard list as the mod's settings page, so it holds only the everyday, live settings in section "Settings"
+    // (2.15.0: two; 3.1.0: eight = Fix screen tearing, Uncap FPS, Show FPS counter and the counter's color/font/size/X/Y).
     // Every performance switch moved, with the same sections, keys, defaults and descriptions, to a second file
     // (com.nexus.uch.gameperformance.advanced.cfg). First start after the update: if the advanced file is new, the
     // values of the technical entries in the old main file (BepInEx keeps them as orphaned entries until something
@@ -17,7 +18,8 @@ namespace UCHGamePerformance
     {
         internal const string AdvancedFileName = "com.nexus.uch.gameperformance.advanced.cfg";
         internal const string Section = "Settings";
-        internal const string Header = "ADVANCED FILE of UCH Game Performance: every performance switch lives here and each one needs a game restart. The everyday settings (Fix screen tearing, Show FPS counter) are in com.nexus.uch.gameperformance.cfg and on the mod's settings page in the mod manager. ";
+        internal const string Header = "ADVANCED FILE of UCH Game Performance: every performance switch lives here and each one needs a game restart. The everyday settings (Fix screen tearing, Uncap FPS, Show FPS counter and its look) are in com.nexus.uch.gameperformance.cfg and on the mod's settings page in the mod manager. ";
+        private const string CounterTag = "EnabledIf:Show FPS counter=True";
         private static ConfigFile advanced;
         internal static string Migration = "not run";
 
@@ -51,14 +53,28 @@ namespace UCHGamePerformance
             }
             ScreenTearingHooks.Entry = plugin.Config.Bind(Section, "Fix screen tearing", false, new ConfigDescription(
                 "On = VSync on with a one-frame queue: no tearing, FPS capped at the monitor refresh rate, less input delay than the game's own VSync. Off = the game's own setting.", null, "Order:1"));
+            // 3.1.0: Uncap FPS (Order:2) and the FPS counter's look (Order:4-8). Barnyard greys a row out while its
+            // EnabledIf condition is false (it cannot hide rows); every row applies live through SettingChanged.
+            UncapSettingHooks.Entry = plugin.Config.Bind(Section, "Uncap FPS", false, new ConfigDescription(
+                "On = no FPS cap and VSync off (can tear on monitors without G-Sync/FreeSync). Off = the game's own cap.", null, "Order:2", "EnabledIf:Fix screen tearing=False"));
             FpsCounterHooks.Entry = plugin.Config.Bind(Section, "Show FPS counter", false, new ConfigDescription(
-                "Shows the current FPS in the top right corner.", null, "Order:2"));
+                "Shows the current FPS, in the top left corner by default. Color, font, size and position are the rows below.", null, "Order:3"));
+            FpsCounterHooks.ColorEntry = plugin.Config.Bind(Section, "FPS counter color", FpsCounterHooks.CounterColor.White, new ConfigDescription(
+                "Text color of the FPS counter.", null, "Order:4", CounterTag));
+            FpsCounterHooks.FontEntry = plugin.Config.Bind(Section, "FPS counter font", FpsCounterHooks.CounterFont.Game, new ConfigDescription(
+                "Game = the game's own font. Default = a plain built-in font.", null, "Order:5", CounterTag));
+            FpsCounterHooks.SizeEntry = plugin.Config.Bind(Section, "FPS counter size", 28, new ConfigDescription(
+                "Text size at 1080p (scaled with the screen height).", new AcceptableValueRange<int>(10, 80), "Order:6", CounterTag));
+            FpsCounterHooks.XEntry = plugin.Config.Bind(Section, "FPS counter X", 0, new ConfigDescription(
+                "Left edge of the counter in percent of the screen width (0 = left edge).", new AcceptableValueRange<int>(0, 100), "Order:7", CounterTag));
+            FpsCounterHooks.YEntry = plugin.Config.Bind(Section, "FPS counter Y", 0, new ConfigDescription(
+                "Top edge of the counter in percent of the screen height (0 = top edge).", new AcceptableValueRange<int>(0, 100), "Order:8", CounterTag));
             if (dropped > 0)
             {
                 try { plugin.Config.Save(); }
                 catch (Exception e) { log.LogWarning("Main config save after migration failed: " + e.Message); }
             }
-            log.LogInfo("Config: settings page " + plugin.Config.ConfigFilePath + " (2 entries); advanced " + (advanced == null ? "(main file)" : advanced.ConfigFilePath) + "; migration " + Migration);
+            log.LogInfo("Config: settings page " + plugin.Config.ConfigFilePath + " (" + plugin.Config.Count + " entries); advanced " + (advanced == null ? "(main file)" : advanced.ConfigFilePath) + "; migration " + Migration);
         }
 
         // Returns the number of technical entries removed from the main file.
